@@ -49,15 +49,18 @@ past M4 without asking.
 - **Phase:** M1 complete (2026-08-11). Repo now under git (commit identity:
   `mohammedodaini`). `make check` green — ruff, ruff format, mypy strict over
   151 files, 12 tests passing. Verified at runtime, not only in tests.
-- **Next:** M2 — database layer. **Blocked on an infrastructure decision:**
-  Docker is not installed on this machine, so there is no local Postgres.
-  Ask the user to choose (Docker Desktop / Colima / `brew install
-  postgresql@17` + pgvector) before starting M2.
+- **Next:** M2 — database layer. **UNBLOCKED**: infrastructure is running.
 
 ### Environment facts learned this session
 - `uv` installed at `/opt/homebrew/bin/uv`; venv runs **Python 3.13.2**.
-  System python is 3.12 and cannot run this project.
-- **No Docker, no local Postgres/Redis.** M1 needed neither.
+  System python is 3.12 and cannot run this project. Always invoke tools as
+  `/opt/homebrew/bin/uv run <cmd>` from `backend/`.
+- **Docker runtime = Colima** (user's choice; no Docker Desktop). Start it
+  with `colima start` if `docker` errors — the VM does not auto-start on
+  boot. `~/.docker/config.json` has `cliPluginsExtraDirs` pointing at
+  `/opt/homebrew/lib/docker/cli-plugins` so `docker compose` resolves.
+- `make up` verified working: **Postgres 17 + pgvector 0.8.6** and **Redis**
+  both healthy from the repo's `docker-compose.yml`.
 - The user's IDE points at `/opt/anaconda3` python 3.12 — import errors shown
   there are IDE misconfiguration, not real. It should point at
   `backend/.venv/bin/python`.
