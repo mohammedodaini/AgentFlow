@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+# ^ remove this pragma when the module below is implemented
 # ruff: noqa: F401  — remove once this module is implemented (M6)
 """/search (M6) and /ask (M7) — retrieval, then retrieval + Claude answer.
 

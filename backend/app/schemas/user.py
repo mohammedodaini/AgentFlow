@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+# ^ remove this pragma when the module below is implemented
 # ruff: noqa: F401  — remove once this module is implemented (M3)
 """User API shapes. UserRead deliberately EXCLUDES password_hash (quiz Q1)."""
 

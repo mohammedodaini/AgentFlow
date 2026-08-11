@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+# ^ remove this pragma when the module below is implemented
 # ruff: noqa: F401  — remove once this module is implemented (M10)
 """Retrieve memories relevant to the current context; feeds the supervisor's
 recall_memory() tool. Touches last_accessed_at (recency feeds decay)."""

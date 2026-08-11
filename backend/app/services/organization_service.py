@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+# ^ remove this pragma when the module below is implemented
 # ruff: noqa: F401  — remove once this module is implemented (M3)
 """Org + membership business logic: create org, invite, change role, remove.
 

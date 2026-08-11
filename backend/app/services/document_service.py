@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+# ^ remove this pragma when the module below is implemented
 # ruff: noqa: F401  — remove once this module is implemented (M5)
 """Document business logic: the upload→enqueue→202 orchestration (quiz Q2).
 

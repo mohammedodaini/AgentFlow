@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+# ^ remove this pragma when the module below is implemented
 # ruff: noqa: F401  — remove once this module is implemented (M5)
 """`documents` — knowledge-base file METADATA. Bytes live in object storage.
 

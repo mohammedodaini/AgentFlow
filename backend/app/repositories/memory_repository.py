@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+# ^ remove this pragma when the module below is implemented
 # ruff: noqa: F401  — remove once this module is implemented (M10)
 """Memory vector search + decay updates. Repository justified: vector search
 plus importance/recency scoring in SQL."""

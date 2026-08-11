@@ -41,3 +41,4 @@ frontend/.env*
 # --- Docker / data volumes ---
 *.sqlite3
 pgdata/
+backend/.venv/

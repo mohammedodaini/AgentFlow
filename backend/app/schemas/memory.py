@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+# ^ remove this pragma when the module below is implemented
 # ruff: noqa: F401  — remove once this module is implemented (M10)
 """Memory API shapes (admin/debug visibility into what the agent remembers)."""
 

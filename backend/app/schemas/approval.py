@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+# ^ remove this pragma when the module below is implemented
 # ruff: noqa: F401  — remove once this module is implemented (M12)
 """Approval API shapes — what the inbox shows and what a decision looks like."""
 

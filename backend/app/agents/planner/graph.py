@@ -1,5 +1,8 @@
+# mypy: ignore-errors
+# ^ remove this pragma when the module below is implemented
 # ruff: noqa: F401  — remove once this module is implemented (M15)
-"""planner agent graph. Pure reasoning: decompose a complex request into ordered steps for other agents. No tools.
+"""planner agent graph. Pure reasoning: decompose a complex request into ordered steps for other
+agents. No tools.
 
 Invoked via services/agent_service.py — never directly from a route.
 """

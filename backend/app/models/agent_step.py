@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+# ^ remove this pragma when the module below is implemented
 # ruff: noqa: F401  — remove once this module is implemented (M9)
 """`agent_steps` — the trace: every LLM call and tool call within a run.
 

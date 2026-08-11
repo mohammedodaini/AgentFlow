@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+# ^ remove this pragma when the module below is implemented
 # ruff: noqa: F401  — remove once this module is implemented (M10)
 """Conversation business logic: create threads, append messages (append-only),
 kick off an agent run for each user message and link the reply to it."""

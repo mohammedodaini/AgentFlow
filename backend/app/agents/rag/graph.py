@@ -1,5 +1,8 @@
+# mypy: ignore-errors
+# ^ remove this pragma when the module below is implemented
 # ruff: noqa: F401  — remove once this module is implemented (M9)
-"""rag agent graph. THE FIRST AGENT (single-agent milestone). Answers questions over the org knowledge base with citations.
+"""rag agent graph. THE FIRST AGENT (single-agent milestone). Answers questions over the org
+knowledge base with citations.
 
 Invoked via services/agent_service.py — never directly from a route.
 """

@@ -73,6 +73,12 @@ ignore = ["PLR0913"]  # "too many arguments" fights with dependency injection
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "PLR2004"]  # asserts and literal values are fine in tests
 
+# Without this, `app` sorts as a third-party package and our own imports get
+# shuffled in among fastapi/httpx. Import grouping is only useful when the
+# first-party group is actually first-party.
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests"]
+
 # --- Mypy: static type checking ---
 [tool.mypy]
 python_version = "3.13"

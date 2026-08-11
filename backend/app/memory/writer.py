@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+# ^ remove this pragma when the module below is implemented
 # ruff: noqa: F401  — remove once this module is implemented (M10)
 """Extract durable facts from a finished run and store them (async, via the
 memory worker task — never inline with a user response)."""

@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+# ^ remove this pragma when the module below is implemented
 # ruff: noqa: F401  — remove once this module is implemented (M9)
 """Agent run/step queries. Repository justified: trace joins, status transitions,
 cost aggregation for billing."""

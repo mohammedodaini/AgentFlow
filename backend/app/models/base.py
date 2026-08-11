@@ -12,5 +12,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-# TODO(M2): class Base(DeclarativeBase) — naming_convention for constraints (Alembic autogenerate sanity)
-# TODO(M2): mixins: UUIDPrimaryKeyMixin (uuid7), TimestampMixin (created_at, updated_at server defaults)
+# TODO(M2): class Base(DeclarativeBase) — naming_convention for constraints (Alembic autogenerate
+#   sanity)
+# TODO(M2): mixins: UUIDPrimaryKeyMixin (uuid7), TimestampMixin (created_at, updated_at server
+#   defaults)

@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+# ^ remove this pragma when the module below is implemented
 # ruff: noqa: F401  — remove once this module is implemented (M12)
 """`approvals` — human-in-the-loop as a DATABASE RECORD, not an in-memory flag.
 

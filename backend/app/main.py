@@ -1,22 +1,77 @@
-# ruff: noqa: F401  — remove once this module is implemented (M1)
 """Application entrypoint — the FastAPI app factory.
 
 Layer: composition root. The ONLY place that wires everything together:
 settings, logging, middleware, routers, lifespan (DB engine startup/shutdown).
 Nothing imports from main.py; main.py imports from everywhere.
+
+Why a factory instead of a module-level `app = FastAPI()`: a module-level app
+is built at import time with whatever environment happened to exist, and every
+test then shares one mutated instance. `create_app()` gives each test a clean
+application, and makes "build an app configured differently" a function call
+rather than a monkeypatch.
 """
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import FastAPI
 
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.logging.config import configure_logging
+from app.middleware.request_id import RequestIDMiddleware
+from app.middleware.timing import TimingMiddleware
 
-# TODO(M1): lifespan() — configure_logging(), create DB engine on startup, dispose on shutdown
-# TODO(M1): create_app() -> FastAPI — app factory (NOT a module-level app; factories are testable)
-# TODO(M1): app.include_router(api_router, prefix="/api/v1")
-# TODO(M1): register middleware from app.middleware (request_id first, so all logs carry it)
+logger = structlog.get_logger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Startup/shutdown hooks.
+
+    Everything expensive and long-lived belongs here rather than at import
+    time: the DB engine (M2) and Redis pool (M5) are created on startup and
+    disposed on shutdown, so connections are never leaked between reloads.
+    """
+    settings = get_settings()
+    logger.info("app.startup", app_name=settings.app_name, env=settings.env)
+
+    # TODO(M2): create the async engine and store it on app.state
+    # TODO(M5): open the Redis connection pool
+
+    yield
+
+    # TODO(M2): await engine.dispose()
+    logger.info("app.shutdown")
+
+
+def create_app() -> FastAPI:
+    """Build and wire a fully configured application."""
+    settings = get_settings()
+
+    # Before anything else, so even startup logs are structured.
+    configure_logging()
+
+    app = FastAPI(
+        title="AgentFlow AI",
+        version="0.1.0",
+        debug=settings.debug,
+        lifespan=lifespan,
+    )
+
+    # Middleware order matters. Starlette wraps outward, so the LAST one
+    # registered is the OUTERMOST. RequestID must be outermost: it sets the
+    # contextvar that TimingMiddleware's log line depends on.
+    app.add_middleware(TimingMiddleware)
+    app.add_middleware(RequestIDMiddleware)
+
+    app.include_router(api_router, prefix="/api/v1")
+
+    return app
+
+
+# Uvicorn target for `make dev` (see Makefile): app.main:app
+app = create_app()
