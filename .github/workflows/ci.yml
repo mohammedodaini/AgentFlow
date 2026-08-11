@@ -1,0 +1,56 @@
+# =============================================================================
+# CI pipeline: every push/PR runs the exact same gate as `make check`.
+# If it isn't checked in CI, it will eventually break in production.
+# =============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: agentflow
+          POSTGRES_PASSWORD: agentflow
+          POSTGRES_DB: agentflow_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U agentflow"
+          --health-interval 5s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      - name: Type check
+        run: uv run mypy app
+
+      - name: Tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://agentflow:agentflow@localhost:5432/agentflow_test
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: ci-only-secret
+        run: uv run pytest

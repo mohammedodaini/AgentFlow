@@ -1,0 +1,14 @@
+# ruff: noqa: F401  — remove once this module is implemented (M14)
+"""google_drive API client — the ONLY code that speaks google_drive's wire format.
+
+Consumed by services and agent tools; returns OUR domain shapes, never raw
+provider payloads.
+"""
+
+from __future__ import annotations
+
+import httpx
+
+from app.integrations.base import BaseClient
+
+# TODO(M14): GoogleDriveClient — list_files, download_file (feeds RAG ingestion)
