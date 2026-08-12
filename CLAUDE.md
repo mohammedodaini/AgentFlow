@@ -46,17 +46,19 @@ past M4 without asking.
 
 ## Current position
 
-- **Phase:** **M1–M4 complete (2026-08-12).** The autonomous block agreed on
-  2026-08-11 is finished. `make check` green — ruff, ruff format, mypy strict
-  over 154 files, **156 tests**, **98.7% coverage** (gate at 97%).
-  See [docs/milestones/M4-testing-discipline.md](docs/milestones/M4-testing-discipline.md).
-- **Next: M5 — and MENTOR MODE RESUMES.** The hybrid agreement covered M1–M4
-  only. From M5 the contract at the top of this file applies again:
-  **explain concept → build together → quiz → exercise → review → refactor.**
-  Do not build M5 autonomously.
-- **Start the next session by re-asking the deferred quiz and exercise** in
-  "Still pending" below. They were issued during the architecture session and
-  have never been answered.
+- **Phase:** **M1–M5 complete (2026-08-12).** `make check` green — ruff, ruff
+  format, mypy strict over **158 files**, **236 tests**, **98.9% coverage**
+  (gate at 97%). Pyramid: unit 128 / integration 41 / e2e 67.
+  See [docs/milestones/M5-document-upload.md](docs/milestones/M5-document-upload.md).
+- **M5 was built autonomously at the user's explicit request** ("continue with
+  m5 and finish it"), which overrode the mentor-mode resumption recorded here
+  after M4. **That override was for M5 only.**
+- **Next: M6 (RAG pipeline) — ASK FIRST.** Do not assume the M5 override
+  extends to it. Ask whether M6 should be mentor mode (the contract at the top
+  of this file) or another autonomous build.
+- **The deferred quiz and exercise are still unanswered** — see "Still pending"
+  below. They have now been carried across three sessions. Re-ask them at the
+  start of the next one, before any M6 work.
 
 ### Environment facts learned this session
 - `uv` installed at `/opt/homebrew/bin/uv`; venv runs **Python 3.13.2**.
@@ -83,6 +85,15 @@ past M4 without asking.
   it. Integration tests **skip**, not fail, when Postgres is unreachable.
 - `uv run alembic check` is the fast "do the models and the database agree?"
   question — cheaper than generating a migration to find out.
+- **From M5 the app needs two processes.** `make dev` alone leaves every upload
+  stuck at `status=pending`; `make worker`
+  (`arq app.workers.settings.WorkerSettings`) is what moves them. The Makefile
+  target used to point at `app.workers.main`, a module that never existed.
+- Uploaded bytes go to `backend/var/storage/` (gitignored). Tests get a
+  `tmp_path` instead, via `STORAGE_LOCAL_PATH` in the autouse env fixture.
+- GateGuard's edit/write gate fires on the **first attempt** at each new file
+  and allows the **retry**, so a multi-file milestone costs roughly two tool
+  calls per file. It denied 38 times across M5.
 
 ### Still pending — ASK THESE FIRST at the start of the M5 session
 1. Quiz (unanswered — re-ask when mentor mode resumes):
@@ -100,6 +111,7 @@ past M4 without asking.
 
 | Date | What happened |
 |---|---|
+| 2026-08-12 | **M5 implemented and shipped** (autonomous, at the user's request): `documents` + `tasks` tables, `app/storage/` (an `ObjectStorage` protocol + filesystem backend, tenant-first keys), pypdf/text extraction, tenant-scoped `DocumentRepository`, `DocumentService` (allowlisted MIME types, size cap enforced *while reading*, orphaned-object cleanup), the arq producer/worker pair, and four endpoints on the 202-then-poll pattern. **The load-bearing decision: nothing is enqueued until its transaction commits.** The first attempt used `BackgroundTasks` on the belief that dependency teardown precedes background tasks — on FastAPI 0.141 it does not, and the e2e ordering test recorded `['enqueue','commit']` on its first run, reproducing the race immediately. Four more real bugs found by tests, not review: `utf-8` before `utf-8-sig` (BOM survived as U+FEFF), cp1252 accepting binary as text, `mkdir` outside the `try` in the atomic write (raw `OSError` escaping instead of `StorageError`), and the Postgres enums outliving their tables in `downgrade()` again. Also corrected an over-claim inherited from M2: UUIDv7 order is *not* chronological within a single millisecond. 236 tests, 98.86%. Wrote [ADR-0007](docs/adr/0007-object-storage-behind-a-protocol.md), [ADR-0008](docs/adr/0008-work-is-enqueued-only-after-the-transaction-commits.md), [docs/milestones/M5-document-upload.md](docs/milestones/M5-document-upload.md). Verified at runtime with a real uvicorn + arq worker + curl, not only in tests. |
 | 2026-07-10 | Full scaffold created: folder tree, configs (pyproject, compose, Makefile, CI, pre-commit, Dockerfile, .env.example), all design docs. Quiz issued, unanswered. Repo not yet under git. |
 | 2026-07-12 | User requested named stubs: all ~110 backend modules created with docstrings (purpose/layer/rules), real imports, and milestone-tagged TODOs (M1–M16). No implementations — bodies are TODO comments; each stub carries `# ruff: noqa: F401`, removed when implemented. Quiz still unanswered; repo still not under git. |
 | 2026-08-12 | **M4 implemented and shipped**: transactional test isolation (one rolled-back transaction per test; `get_db` overridden so HTTP requests join it; `join_transaction_mode="create_savepoint"` so app-level `commit()` still behaves as in production), session-scoped schema creation, `tests/factories.py` (Argon2 hashed once per session — per-user hashing would add a minute of CPU), directory-derived `unit`/`integration`/`e2e` markers, coverage gate at 97%. **Found and fixed an 11-point coverage under-report**: SQLAlchemy's asyncio layer runs in greenlets, which coverage does not trace without `concurrency = ["greenlet", "thread"]` — the service layer read 57% while e2e tests were exercising it. The omit list for stub modules is reconciled against the source tree in both directions by `tests/unit/test_stub_manifest.py`, so it cannot rot. 156 tests, 98.7%. Wrote [ADR-0006](docs/adr/0006-tests-run-inside-a-rolled-back-transaction.md) and [docs/milestones/M4-testing-discipline.md](docs/milestones/M4-testing-discipline.md). |

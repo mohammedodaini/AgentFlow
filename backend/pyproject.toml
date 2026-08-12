@@ -26,6 +26,8 @@ dependencies = [
     "asyncpg>=0.30",
     "alembic>=1.14",
     "pgvector>=0.3",
+    # --- Document parsing (M5) ---
+    "pypdf>=5.1",                    # pure-python PDF text extraction
     # --- Auth ---
     "pyjwt>=2.10",
     "argon2-cffi>=23.1",
@@ -71,7 +73,14 @@ select = [
     "SIM",      # simplify
     "PL",       # pylint subset
 ]
-ignore = ["PLR0913"]  # "too many arguments" fights with dependency injection
+# Both rules count parameters, and both are wrong about dependency injection: a
+# FastAPI route's parameters are *injected by name*, never passed positionally,
+# so a six-argument route signature is a declaration of what it needs rather
+# than a call site anyone has to remember the order of. Obeying them would mean
+# bundling unrelated dependencies into a container object purely to satisfy a
+# linter — strictly worse, because it hides from the framework what the
+# endpoint actually depends on.
+ignore = ["PLR0913", "PLR0917"]
 
 [tool.ruff.lint.per-file-ignores]
 # S101 asserts and PLR2004 literals are the point of a test.
@@ -131,19 +140,29 @@ concurrency = ["greenlet", "thread"]
 # This list cannot go stale unnoticed: tests/unit/test_stub_manifest.py
 # reconciles it against the source tree in both directions, so implementing a
 # module while leaving it here fails the suite.
+# M5 note: `app/rag/**`, `app/repositories/**` and `app/workers/**` used to be
+# blanket globs. They are now per-file, because M5 implements one module inside
+# each of those packages and a directory glob would have hidden all three from
+# the gate — the precise failure test_stub_manifest.py exists to catch. A
+# package-wide omit is only ever safe while the package is entirely empty.
 omit = [
     "app/agents/**/*.py",
     "app/evaluation/**/*.py",
     "app/integrations/**/*.py",
     "app/memory/**/*.py",
     "app/prompts/**/*.py",
-    "app/rag/**/*.py",
-    "app/repositories/**/*.py",
-    "app/workers/**/*.py",
+    "app/rag/chunking.py",
+    "app/rag/embeddings.py",
+    "app/rag/retrieval.py",
+    "app/repositories/agent_run_repository.py",
+    "app/repositories/chunk_repository.py",
+    "app/repositories/memory_repository.py",
+    "app/workers/tasks/agent_execution.py",
+    "app/workers/tasks/email_sync.py",
+    "app/workers/tasks/memory_extraction.py",
     "app/api/v1/routes/agent_runs.py",
     "app/api/v1/routes/approvals.py",
     "app/api/v1/routes/conversations.py",
-    "app/api/v1/routes/documents.py",
     "app/api/v1/routes/integrations.py",
     "app/api/v1/routes/retrieval.py",
     "app/middleware/rate_limit.py",
@@ -152,24 +171,20 @@ omit = [
     "app/models/agent_step.py",
     "app/models/approval.py",
     "app/models/conversation.py",
-    "app/models/document.py",
     "app/models/document_chunk.py",
     "app/models/event.py",
     "app/models/integration.py",
     "app/models/memory.py",
     "app/models/message.py",
     "app/models/oauth_token.py",
-    "app/models/task.py",
     "app/schemas/agent_run.py",
     "app/schemas/approval.py",
     "app/schemas/conversation.py",
-    "app/schemas/document.py",
     "app/schemas/integration.py",
     "app/schemas/memory.py",
     "app/services/agent_service.py",
     "app/services/approval_service.py",
     "app/services/conversation_service.py",
-    "app/services/document_service.py",
     "app/services/integration_service.py",
 ]
 

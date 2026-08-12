@@ -30,7 +30,15 @@ from faker import Faker
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password
-from app.models import Membership, Organization, Role, User
+from app.models import (
+    Document,
+    DocumentSource,
+    DocumentStatus,
+    Membership,
+    Organization,
+    Role,
+    User,
+)
 from app.services.organization_service import slugify
 
 fake = Faker()
@@ -102,6 +110,83 @@ async def make_membership(
     session.add(membership)
     await session.flush()
     return membership
+
+
+TEXT_BYTES = b"AgentFlow ingests documents.\n\nThis is the second paragraph.\n"
+"""A tiny, valid `text/plain` upload. Small enough to read in a failure message."""
+
+
+def make_pdf(text: str = "Hello AgentFlow") -> bytes:
+    """A minimal but genuinely valid PDF containing a real text layer.
+
+    Hand-built rather than checked in as a binary fixture, and rather than
+    faked with `b"%PDF-1.4 fake"`. A fake would prove only that our code calls
+    pypdf; this proves pypdf can actually extract the string back, which is the
+    thing the ingestion pipeline depends on.
+
+    The xref table is computed from real byte offsets. That matters: pypdf will
+    reconstruct a broken xref and carry on, so a fixture with wrong offsets
+    would still pass while quietly being malformed.
+    """
+    stream = f"BT /F1 24 Tf 40 120 Td ({text}) Tj ET".encode("ascii")
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] "
+        b"/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+
+    out = bytearray(b"%PDF-1.4\n")
+    offsets: list[int] = []
+
+    for index, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += f"{index} 0 obj\n".encode() + body + b"\nendobj\n"
+
+    xref_at = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n".encode()
+    out += b"0000000000 65535 f \n"
+    out += b"".join(f"{offset:010d} 00000 n \n".encode() for offset in offsets)
+    out += (
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    ).encode()
+
+    return bytes(out)
+
+
+async def make_document(
+    session: AsyncSession,
+    *,
+    organization: Organization,
+    uploaded_by: User | None = None,
+    title: str = "handbook.pdf",
+    **fields: Any,
+) -> Document:
+    """Create a persisted document row.
+
+    Metadata only — it writes no bytes. Tests that need the object to exist say
+    so explicitly by calling `storage.put`, because "the row exists but the
+    object does not" is a real state the ingestion worker has to survive, and a
+    factory that silently created both would make it untestable.
+    """
+    document = Document(
+        organization_id=organization.id,
+        uploaded_by=uploaded_by.id if uploaded_by else None,
+        title=title,
+        source=fields.pop("source", DocumentSource.UPLOAD),
+        mime_type=fields.pop("mime_type", "application/pdf"),
+        storage_uri=fields.pop(
+            "storage_uri", f"organizations/{organization.id}/documents/x/{title}"
+        ),
+        byte_size=fields.pop("byte_size", 1024),
+        status=fields.pop("status", DocumentStatus.PENDING),
+        **fields,
+    )
+    session.add(document)
+    await session.flush()
+    return document
 
 
 async def make_org_with_owner(

@@ -25,7 +25,9 @@ per test, and `create_all` costs far more than that.
 from __future__ import annotations
 
 import asyncio
+import pathlib
 from collections.abc import AsyncIterator, Iterator
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
@@ -40,6 +42,8 @@ from app.core.config import Settings, get_settings
 from app.db.deps import get_db
 from app.main import create_app
 from app.models import Base
+from app.storage import ObjectStorage, create_storage
+from app.workers.queue import get_queue
 
 MAINTENANCE_DATABASE = "postgres"
 """Every PostgreSQL server has it, and you must be connected *somewhere* to
@@ -134,20 +138,80 @@ def database_url() -> str:
 
 
 @pytest.fixture(autouse=True)
-def _test_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+def _test_env(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> Iterator[None]:
     """Force `APP_ENV=test`, isolate the datastores, clear the settings cache.
 
     Autouse because `get_settings()` is `lru_cache`d: without clearing that
     cache between tests, the first test to call it would freeze configuration
     for every test that follows.
+
+    `STORAGE_LOCAL_PATH` joins the list at M5, for the same reason as the other
+    two. The default is `./var/storage`, so without this every test that
+    uploaded anything would scatter files through the working tree and leave
+    them there — and two tests uploading the same filename would start seeing
+    each other's bytes. `tmp_path` is function-scoped, so each test gets an
+    empty directory and pytest cleans it up.
     """
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.setenv("DATABASE_URL", resolve_test_database_url())
     monkeypatch.setenv("REDIS_URL", resolve_test_redis_url())
+    monkeypatch.setenv("STORAGE_LOCAL_PATH", str(tmp_path / "storage"))
 
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+@pytest.fixture
+def storage() -> ObjectStorage:
+    """The real local backend, rooted in this test's temporary directory.
+
+    A real one rather than a mock. The interesting failures in `app/storage/`
+    are filesystem failures — a key escaping its root, a directory that does
+    not exist yet, a half-written file — and a mock reproduces none of them
+    while happily reporting success.
+    """
+    return create_storage(get_settings())
+
+
+class RecordingQueue:
+    """A `JobQueue` that remembers instead of enqueueing.
+
+    Substituted for the arq pool so tests can assert on the behaviour that
+    matters — *that* a job was enqueued, with which arguments, and in what
+    order relative to the commit — none of which is observable when the only
+    evidence is a job sitting in Redis.
+
+    It satisfies the `JobQueue` protocol structurally, which is the entire
+    reason that protocol exists (see `app/workers/queue.py`).
+    """
+
+    def __init__(self, events: list[str]) -> None:
+        self.jobs: list[dict[str, Any]] = []
+        self._events = events
+
+    async def enqueue_job(self, function: str, *args: Any, **kwargs: Any) -> None:
+        self._events.append("enqueue")
+        self.jobs.append({"function": function, "args": args, **kwargs})
+
+
+@pytest.fixture
+def lifecycle_events() -> list[str]:
+    """An ordered log of "commit" and "enqueue", shared by the fixtures below.
+
+    This exists for one test, and that test earns it: the correctness of the
+    whole 202 flow rests on the enqueue happening *after* the transaction
+    commits, and that ordering is a promise made by FastAPI's dependency
+    lifecycle rather than by any code in this repository. A comment claiming it
+    is true would rot silently on a framework upgrade. A list that records the
+    real order does not.
+    """
+    return []
+
+
+@pytest.fixture
+def queue(lifecycle_events: list[str]) -> RecordingQueue:
+    return RecordingQueue(lifecycle_events)
 
 
 @pytest.fixture
@@ -196,7 +260,7 @@ async def db_session(db_connection: AsyncConnection) -> AsyncIterator[AsyncSessi
 
 
 @pytest.fixture
-def app(db_session: AsyncSession) -> FastAPI:
+def app(db_session: AsyncSession, queue: RecordingQueue, lifecycle_events: list[str]) -> FastAPI:
     """A freshly built application, wired to the test's transaction.
 
     Built per-test through the factory rather than imported as a module-level
@@ -210,6 +274,19 @@ def app(db_session: AsyncSession) -> FastAPI:
     """
     application = create_app()
 
+    # Record *every* commit, wherever it comes from — the route's explicit one
+    # as well as the dependency's trailing one. Instrumenting only the teardown
+    # was the first attempt and it measured the wrong thing: it could not see a
+    # route that commits for itself, which is exactly what the upload endpoint
+    # does and exactly what the ordering test is about.
+    inner_commit = db_session.commit
+
+    async def recording_commit() -> None:
+        await inner_commit()
+        lifecycle_events.append("commit")
+
+    db_session.commit = recording_commit  # type: ignore[method-assign]
+
     async def override_get_db() -> AsyncIterator[AsyncSession]:
         # Mirrors app/db/deps.py: commit on success, roll back on failure.
         # Both act on savepoints here rather than the outer transaction.
@@ -222,6 +299,14 @@ def app(db_session: AsyncSession) -> FastAPI:
             await db_session.commit()
 
     application.dependency_overrides[get_db] = override_get_db
+
+    # M5. The queue is overridden but storage is not: `lifespan()` already
+    # builds a local backend rooted in this test's tmp_path (see `_test_env`),
+    # so end-to-end tests exercise the real storage wiring. The queue has no
+    # such harmless local equivalent — a real one would need arq to be running
+    # and would make every upload test wait on a worker.
+    application.dependency_overrides[get_queue] = lambda: queue
+
     return application
 
 

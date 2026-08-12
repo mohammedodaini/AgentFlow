@@ -20,8 +20,8 @@ install:         ## Install backend dependencies into a virtualenv
 dev:             ## Run the API with hot reload
 	cd backend && uv run uvicorn app.main:app --reload --port 8000
 
-worker:          ## Run the background task worker
-	cd backend && uv run arq app.workers.main.WorkerSettings
+worker:          ## Run the background task worker (arq)
+	cd backend && uv run arq app.workers.settings.WorkerSettings
 
 test:            ## Run the test suite with coverage
 	cd backend && uv run pytest

@@ -28,6 +28,8 @@ from app.core.exceptions import (
     AuthorizationError,
     ConflictError,
     NotFoundError,
+    PayloadTooLargeError,
+    UnsupportedMediaTypeError,
 )
 
 logger = structlog.get_logger(__name__)
@@ -39,6 +41,16 @@ _STATUS_BY_ERROR: list[tuple[type[AppError], HTTPStatus]] = [
     (AuthorizationError, HTTPStatus.FORBIDDEN),
     (NotFoundError, HTTPStatus.NOT_FOUND),
     (ConflictError, HTTPStatus.CONFLICT),
+    # M5. Both are upload-specific and both are the client's to fix, which is
+    # why neither is folded into a generic 400: 413 tells a client to send
+    # less, 415 tells it to send something else. A single "bad request" would
+    # make those two indistinguishable to code, and the difference is the only
+    # actionable part of the answer.
+    (PayloadTooLargeError, HTTPStatus.REQUEST_ENTITY_TOO_LARGE),
+    (UnsupportedMediaTypeError, HTTPStatus.UNSUPPORTED_MEDIA_TYPE),
+    # Deliberately absent: StorageError (app/storage/base.py). It falls through
+    # to 500, which is the honest answer — the client did nothing wrong and
+    # retrying the same request will not help.
 ]
 
 

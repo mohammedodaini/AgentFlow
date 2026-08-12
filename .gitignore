@@ -17,6 +17,13 @@ venv/
 credentials*.json
 token*.json
 
+# --- Local runtime state (M5) ---
+# Uploaded document bytes land here with STORAGE_BACKEND=local. Customer files
+# must never reach a repository, and `var/` is the conventional home for state
+# a twelve-factor app generates rather than reads from configuration.
+var/
+backend/var/
+
 # --- Tooling caches ---
 .mypy_cache/
 .ruff_cache/

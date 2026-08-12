@@ -81,6 +81,46 @@ class DuplicateEmailError(ConflictError):
     default_code: ClassVar[str] = "duplicate_email"
 
 
-# TODO(M5): DocumentIngestionError
+class UnsupportedMediaTypeError(AppError):
+    """The upload is a type we cannot extract text from. Maps to 415.
+
+    Not a `ConflictError` and not a generic 400: 415 is the status that tells a
+    client the *representation* was wrong rather than the request. The message
+    always names the types that would work, because "unsupported media type"
+    with no list is an error the user cannot act on.
+    """
+
+    default_code: ClassVar[str] = "unsupported_media_type"
+
+
+class PayloadTooLargeError(AppError):
+    """The upload exceeds `settings.max_upload_bytes`. Maps to 413.
+
+    Raised *during* the read, not after it — see `DocumentService.upload`. An
+    error class that only ever fires once the whole file is already in memory
+    would be documentation of an attack rather than a defence against one.
+    """
+
+    default_code: ClassVar[str] = "payload_too_large"
+
+
+class DocumentIngestionError(AppError):
+    """Parsing or processing a stored document failed.
+
+    Unlike almost everything else here, this is not on its way to becoming an
+    HTTP status. It is raised inside an arq worker, where there is no request
+    and no client waiting — the task catches it, writes the message to
+    `documents.error`, and sets `status=failed`. The user learns about it by
+    polling, which is the whole point of the 202 pattern.
+
+    So the `message` has a different audience from the rest of this module: it
+    is read by whoever uploaded the file, hours later, with no context. "Could
+    not extract text: the PDF appears to be scanned images" is useful.
+    "ValueError" is not.
+    """
+
+    default_code: ClassVar[str] = "document_ingestion_failed"
+
+
 # TODO(M9): AgentExecutionError
 # TODO(M12): ApprovalRequiredError, ApprovalExpiredError

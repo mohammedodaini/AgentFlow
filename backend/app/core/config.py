@@ -101,6 +101,53 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
     """Long, and revocable, which is the trade that makes the short access TTL bearable."""
 
+    # --- Object storage (M5) ---
+    storage_backend: Literal["local"] = "local"
+    """Which `ObjectStorage` implementation to build. A `Literal`, so a typo in
+    the environment fails at startup — the same reason `env` is one."""
+
+    storage_local_path: str = "./var/storage"
+    """Root directory for the local backend. Under `var/` by convention: the
+    place a twelve-factor app keeps state it did not get from configuration.
+    Gitignored, because uploaded documents must never reach a repository."""
+
+    max_upload_bytes: int = 25 * 1024 * 1024
+    """25 MiB. Enforced while *reading* the upload, not after it.
+
+    The distinction is the whole point. Checking `Content-Length` trusts the
+    client, and checking the size once the file has been read means the server
+    already spent the disk and memory an attacker wanted it to spend. The
+    ceiling is a policy question rather than a technical one; 25 MiB covers a
+    long PDF report and refuses a video.
+    """
+
+    allowed_upload_mime_types: list[str] = [
+        "application/pdf",
+        "text/plain",
+        "text/markdown",
+    ]
+    """An allowlist, because a denylist of dangerous types is unbounded.
+
+    Only types `app/rag/ingestion.py` can actually extract text from. Accepting
+    a `.docx` we cannot parse would mean storing bytes, charging the user for
+    them, and answering `status=failed` — better to refuse at the door with 415
+    and say which types work.
+    """
+
+    # --- Background work (M5) ---
+    arq_max_tries: int = 3
+    """Attempts before arq gives up on a job.
+
+    Retries exist for the transient half of the failure space — Redis blipped,
+    Postgres failed over. They do nothing for the permanent half: a corrupt PDF
+    fails identically all three times. That is why the ingestion task marks a
+    document `failed` itself rather than letting the retries quietly run out.
+    """
+
+    arq_job_timeout_seconds: int = 300
+    """Five minutes. A job with no timeout does not fail — it *hangs*, holding
+    a worker slot forever, and the queue behind it stops moving."""
+
     @property
     def is_development(self) -> bool:
         """True only in local development — drives human-readable log output."""

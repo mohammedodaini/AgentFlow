@@ -27,6 +27,8 @@ from app.db.session import create_engine, create_session_factory
 from app.logging.config import configure_logging
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.timing import TimingMiddleware
+from app.storage import create_storage
+from app.workers.queue import create_queue
 
 logger = structlog.get_logger(__name__)
 
@@ -54,14 +56,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # because `/auth/logout` has to revoke something real.
     app.state.redis = create_redis_client(settings)
 
-    # Note: nothing connects yet. Both clients pool lazily, so a dependency
-    # that is down does not stop the process from starting — /health/ready is
-    # what reports that, and an orchestrator can act on it.
+    # M5: where uploaded document bytes go. Built here for the same reason as
+    # the engine — constructing an app should have no side effects, and a test
+    # can point it at a temporary directory by overriding one dependency.
+    app.state.storage = create_storage(settings)
+
+    # M5: the producer side of the arq queue. A *second* Redis pool, and
+    # deliberately not `app.state.redis` — that client decodes replies to str,
+    # while arq's job payloads are bytes. See app/workers/queue.py.
+    app.state.queue = await create_queue(settings)
+
+    # Note: apart from the queue, nothing connects yet. The other clients pool
+    # lazily, so a dependency that is down does not stop the process from
+    # starting — /health/ready is what reports that, and an orchestrator can
+    # act on it.
 
     yield
 
     # Close every pooled connection. Skipping this leaks server-side sessions
     # on every reload, and `make dev` reloads on each keystroke.
+    await app.state.queue.aclose()
     await app.state.redis.aclose()
     await engine.dispose()
     logger.info("app.shutdown")
