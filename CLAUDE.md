@@ -46,10 +46,11 @@ past M4 without asking.
 
 ## Current position
 
-- **Phase:** M1 complete (2026-08-11). Repo now under git (commit identity:
-  `mohammedodaini`). `make check` green — ruff, ruff format, mypy strict over
-  151 files, 12 tests passing. Verified at runtime, not only in tests.
-- **Next:** M2 — database layer. **UNBLOCKED**: infrastructure is running.
+- **Phase:** M2 complete (2026-08-12). `make check` green — ruff, ruff format,
+  mypy strict over 152 files, **48 tests** passing. Verified at runtime, not
+  only in tests. See [docs/milestones/M2-database-layer.md](docs/milestones/M2-database-layer.md).
+- **Next:** M3 — authentication (Argon2, JWT access+refresh, `get_current_user`,
+  org scoping). Still autonomous; mentor mode resumes at **M5**.
 
 ### Environment facts learned this session
 - `uv` installed at `/opt/homebrew/bin/uv`; venv runs **Python 3.13.2**.
@@ -65,8 +66,17 @@ past M4 without asking.
   there are IDE misconfiguration, not real. It should point at
   `backend/.venv/bin/python`.
 - GateGuard hooks demand a "facts" preamble before the first write to each
-  file (~17 denials this session). `ECC_GATEGUARD=off` disables it if the
-  friction outweighs the value.
+  file, and again before any destructive shell command (~17 denials in the M1
+  session, 30 in the M2 session — it allows **one new file per turn**, so it
+  roughly doubles the turn count of any multi-file milestone).
+  `ECC_GATEGUARD=off`, or `ECC_DISABLED_HOOKS=pre:edit-write:gateguard-fact-force`,
+  disables it if the friction outweighs the value.
+- **Test database:** `agentflow_test`, created automatically by
+  `tests/integration/conftest.py` (it connects to the `postgres` maintenance DB
+  and issues `CREATE DATABASE` if missing). CI already sets `DATABASE_URL` to
+  it. Integration tests **skip**, not fail, when Postgres is unreachable.
+- `uv run alembic check` is the fast "do the models and the database agree?"
+  question — cheaper than generating a migration to find out.
 
 ### Still pending (deferred, NOT cancelled — resume at M5)
 1. Quiz (unanswered — re-ask when mentor mode resumes):
@@ -86,6 +96,7 @@ past M4 without asking.
 |---|---|
 | 2026-07-10 | Full scaffold created: folder tree, configs (pyproject, compose, Makefile, CI, pre-commit, Dockerfile, .env.example), all design docs. Quiz issued, unanswered. Repo not yet under git. |
 | 2026-07-12 | User requested named stubs: all ~110 backend modules created with docstrings (purpose/layer/rules), real imports, and milestone-tagged TODOs (M1–M16). No implementations — bodies are TODO comments; each stub carries `# ruff: noqa: F401`, removed when implemented. Quiz still unanswered; repo still not under git. |
+| 2026-08-12 | **M2 implemented and shipped**: `uuid7()` (RFC 9562 §5.7, hand-rolled — 3.13 has no `uuid.uuid7`), `Base` + naming convention + UUID/timestamp mixins, `organizations`/`users`/`memberships` + `Role` enum, async engine + session-per-request with the commit boundary in `get_db()`, `/health/ready` (Postgres only — Redis waits for M5), Alembic wired async to `Settings` and `Base.metadata` with ruff post-write hooks. 48 tests (30 unit, 9 integration, 9 e2e). Caught 3 real bugs: the Postgres enum that survives `DROP TABLE`, a wrong claim that ids exist before flush, and an index redundant with a composite unique constraint. Wrote [ADR-0003](docs/adr/0003-uuidv7-primary-keys.md) and [docs/milestones/M2-database-layer.md](docs/milestones/M2-database-layer.md). |
 | 2026-08-11 | Mode switched to HYBRID (see above). `git init` + baseline commit. Installed `uv`, resolved deps on Python 3.13.2. **M1 implemented and shipped**: config, exceptions, structlog + request-id processor, request-id and timing middleware, `/api/v1/health/live`, v1 router, `create_app()` factory. 12 tests. Full `make check` green. Wrote [ADR-0002](docs/adr/0002-unimplemented-stubs-are-excluded-from-mypy.md) (stub modules get `# mypy: ignore-errors` so the gate can pass before M16) and [docs/milestones/M1-skeleton-that-runs.md](docs/milestones/M1-skeleton-that-runs.md). Also installed 24 `addyosmani/agent-skills` globally and disabled 7 unused marketplace plugin families. |
 
 ## Quiz & exercise history

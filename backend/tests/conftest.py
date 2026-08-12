@@ -42,7 +42,16 @@ def app() -> FastAPI:
 
 @pytest.fixture
 async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
-    """HTTP client speaking to the ASGI app in-process (no network, no server)."""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as async_client:
-        yield async_client
+    """HTTP client speaking to the ASGI app in-process (no network, no server).
+
+    `lifespan_context` is entered explicitly because httpx's ASGITransport does
+    not fire lifespan events. Without it, startup never runs, so
+    `app.state.session_factory` never exists and any route touching the
+    database fails with an AttributeError that looks nothing like the real
+    problem. Entering it here also means tests exercise the same startup path
+    production uses.
+    """
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as async_client:
+            yield async_client

@@ -21,6 +21,7 @@ from fastapi import FastAPI
 
 from app.api.v1.router import api_router
 from app.core.config import get_settings
+from app.db.session import create_engine, create_session_factory
 from app.logging.config import configure_logging
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.timing import TimingMiddleware
@@ -39,12 +40,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     logger.info("app.startup", app_name=settings.app_name, env=settings.env)
 
-    # TODO(M2): create the async engine and store it on app.state
+    # The engine is created here, not at import time, so building an app never
+    # has the side effect of opening a connection pool. It lands on app.state
+    # because that is the object every request already holds a handle to —
+    # which is what lets `get_db()` stay a plain function instead of a global.
+    engine = create_engine(settings)
+    app.state.db_engine = engine
+    app.state.session_factory = create_session_factory(engine)
+
+    # Note: nothing connects yet. SQLAlchemy pools lazily, so a database that
+    # is down does not stop the process from starting — /health/ready is what
+    # reports that, and an orchestrator can act on it.
     # TODO(M5): open the Redis connection pool
 
     yield
 
-    # TODO(M2): await engine.dispose()
+    # Close every pooled connection. Skipping this leaks server-side sessions
+    # on every reload, and `make dev` reloads on each keystroke.
+    await engine.dispose()
     logger.info("app.shutdown")
 
 

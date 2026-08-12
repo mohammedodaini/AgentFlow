@@ -10,10 +10,14 @@ readiness. Conflating them means a brief database blip restarts every pod.
 
 from __future__ import annotations
 
+from http import HTTPStatus
 from typing import Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel
+
+from app.db.deps import get_session_factory
+from app.monitoring.health import check_readiness
 
 router = APIRouter(tags=["health"])
 
@@ -34,4 +38,33 @@ async def health_live() -> LivenessResponse:
     return LivenessResponse()
 
 
-# TODO(M2): GET /health/ready — calls check_readiness(); 503 if a dependency is down
+class ReadinessResponse(BaseModel):
+    """The probe result, plus a per-dependency breakdown for whoever is paged."""
+
+    status: Literal["ready", "not_ready"]
+    checks: dict[str, bool]
+
+
+@router.get(
+    "/health/ready",
+    summary="Readiness probe",
+    responses={HTTPStatus.SERVICE_UNAVAILABLE: {"description": "A dependency is unreachable"}},
+)
+async def health_ready(request: Request, response: Response) -> ReadinessResponse:
+    """Report whether this instance can serve traffic right now.
+
+    Returns 503 when any dependency fails, which is what tells a load balancer
+    to route around this instance without restarting it.
+
+    The body is returned on both paths rather than raising `HTTPException`,
+    because the interesting information is *which* dependency failed — and an
+    error response that says only "Service Unavailable" sends whoever is
+    on-call straight to the logs to find out what a 503 meant.
+    """
+    checks = await check_readiness(get_session_factory(request))
+    ready = all(checks.values())
+
+    if not ready:
+        response.status_code = HTTPStatus.SERVICE_UNAVAILABLE
+
+    return ReadinessResponse(status="ready" if ready else "not_ready", checks=checks)

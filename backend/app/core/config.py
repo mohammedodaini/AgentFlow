@@ -52,6 +52,20 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://agentflow:agentflow@localhost:5432/agentflow"
     redis_url: str = "redis://localhost:6379/0"
 
+    # --- Connection pool (M2) ---
+    # Postgres' own max_connections is the ceiling every client shares. The
+    # arithmetic that matters: (db_pool_size + db_max_overflow) x number of
+    # processes must stay under it, or one traffic spike exhausts the server
+    # and *every* service starts failing, not just this one.
+    db_pool_size: int = 5
+    """Connections held open per process. Async workers need far fewer than sync ones."""
+
+    db_max_overflow: int = 10
+    """Extra connections allowed during a burst, closed again once idle."""
+
+    db_echo: bool = False
+    """Log every emitted statement. Priceless when debugging a query, ruinous in production."""
+
     @property
     def is_development(self) -> bool:
         """True only in local development — drives human-readable log output."""

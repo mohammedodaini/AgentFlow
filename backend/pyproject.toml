@@ -71,7 +71,10 @@ select = [
 ignore = ["PLR0913"]  # "too many arguments" fights with dependency injection
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101", "PLR2004"]  # asserts and literal values are fine in tests
+# S101 asserts and PLR2004 literals are the point of a test.
+# S105/S106 flag hardcoded passwords — correct in application code, noise in
+# fixtures that need a `password_hash` value and must never use a real one.
+"tests/*" = ["S101", "PLR2004", "S105", "S106"]
 
 # Without this, `app` sorts as a third-party package and our own imports get
 # shuffled in among fastapi/httpx. Import grouping is only useful when the
