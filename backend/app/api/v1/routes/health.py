@@ -17,6 +17,7 @@ from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel
 
 from app.db.deps import get_session_factory
+from app.db.redis import get_redis
 from app.monitoring.health import check_readiness
 
 router = APIRouter(tags=["health"])
@@ -61,7 +62,7 @@ async def health_ready(request: Request, response: Response) -> ReadinessRespons
     error response that says only "Service Unavailable" sends whoever is
     on-call straight to the logs to find out what a 503 meant.
     """
-    checks = await check_readiness(get_session_factory(request))
+    checks = await check_readiness(get_session_factory(request), get_redis(request))
     ready = all(checks.values())
 
     if not ready:

@@ -19,8 +19,10 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 
+from app.api.errors import register_exception_handlers
 from app.api.v1.router import api_router
 from app.core.config import get_settings
+from app.db.redis import create_redis_client
 from app.db.session import create_engine, create_session_factory
 from app.logging.config import configure_logging
 from app.middleware.request_id import RequestIDMiddleware
@@ -48,15 +50,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.db_engine = engine
     app.state.session_factory = create_session_factory(engine)
 
-    # Note: nothing connects yet. SQLAlchemy pools lazily, so a database that
-    # is down does not stop the process from starting — /health/ready is what
-    # reports that, and an orchestrator can act on it.
-    # TODO(M5): open the Redis connection pool
+    # M3: the refresh-token denylist lives here. Arrived earlier than planned
+    # because `/auth/logout` has to revoke something real.
+    app.state.redis = create_redis_client(settings)
+
+    # Note: nothing connects yet. Both clients pool lazily, so a dependency
+    # that is down does not stop the process from starting — /health/ready is
+    # what reports that, and an orchestrator can act on it.
 
     yield
 
     # Close every pooled connection. Skipping this leaks server-side sessions
     # on every reload, and `make dev` reloads on each keystroke.
+    await app.state.redis.aclose()
     await engine.dispose()
     logger.info("app.shutdown")
 
@@ -80,6 +86,12 @@ def create_app() -> FastAPI:
     # contextvar that TimingMiddleware's log line depends on.
     app.add_middleware(TimingMiddleware)
     app.add_middleware(RequestIDMiddleware)
+
+    # Maps the domain exception hierarchy (app/core/exceptions.py) onto HTTP
+    # status codes and one error body shape. Registered here rather than
+    # per-route so a service raising NotFoundError becomes a 404 everywhere,
+    # including in routes nobody has written yet.
+    register_exception_handlers(app)
 
     app.include_router(api_router, prefix="/api/v1")
 

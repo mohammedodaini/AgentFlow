@@ -12,13 +12,26 @@ lets db, logging, api and the workers all read it safely.
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import Field
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["development", "test", "production"]
 """The only three environments that exist. A typo fails at startup, not later."""
+
+PLACEHOLDER_SECRET = "dev-only-insecure-secret-change-me-before-production"  # noqa: S105
+"""The value shipped in .env.example. Refused in production — see the validator below.
+
+Long enough to clear MINIMUM_SECRET_BYTES so local runs are quiet: a short
+default makes PyJWT warn on every single test, and a warning that always fires
+is a warning nobody reads.
+"""
+
+MINIMUM_SECRET_BYTES = 32
+"""RFC 7518 §3.2: an HMAC key for HS256 must be at least as long as the hash
+output. A shorter key does not make the signature *look* invalid — it just
+quietly shrinks the search space for anyone brute-forcing it."""
 
 
 class Settings(BaseSettings):
@@ -66,10 +79,64 @@ class Settings(BaseSettings):
     db_echo: bool = False
     """Log every emitted statement. Priceless when debugging a query, ruinous in production."""
 
+    # --- Auth (M3) ---
+    secret_key: SecretStr = SecretStr(PLACEHOLDER_SECRET)
+    """Signs every JWT. `openssl rand -hex 32`.
+
+    `SecretStr` so it cannot leak through a `repr()`, a log line, or a
+    validation error — all three of which print settings objects.
+    """
+
+    jwt_algorithm: str = "HS256"
+    """Symmetric: one key both signs and verifies.
+
+    Correct while a single service issues and validates its own tokens. The day
+    another service needs to *verify* without being able to *mint*, this moves
+    to RS256 and the verifier gets only the public key.
+    """
+
+    access_token_expire_minutes: int = 30
+    """Short, because access tokens cannot be revoked — see app/auth/tokens.py."""
+
+    refresh_token_expire_days: int = 7
+    """Long, and revocable, which is the trade that makes the short access TTL bearable."""
+
     @property
     def is_development(self) -> bool:
         """True only in local development — drives human-readable log output."""
         return self.env == "development"
+
+    @model_validator(mode="after")
+    def _reject_placeholder_secret_in_production(self) -> Self:
+        """Refuse to start a production process that signs tokens with a known key.
+
+        This is the single highest-value line in the file. A leaked or
+        default signing key means anyone can mint a token for any user, and
+        nothing in the application would notice — every request would look
+        perfectly legitimate. Failing at startup is loud; the alternative
+        fails silently, in production, for as long as nobody looks.
+        """
+        if self.env != "production":
+            return self
+
+        secret = self.secret_key.get_secret_value()
+
+        if secret == PLACEHOLDER_SECRET:
+            message = (
+                "SECRET_KEY is still the placeholder value in production. "
+                "Generate one with: openssl rand -hex 32"
+            )
+            raise ValueError(message)
+
+        if len(secret.encode()) < MINIMUM_SECRET_BYTES:
+            message = (
+                f"SECRET_KEY must be at least {MINIMUM_SECRET_BYTES} bytes for "
+                f"{self.jwt_algorithm} (RFC 7518 §3.2); got {len(secret.encode())}. "
+                "Generate one with: openssl rand -hex 32"
+            )
+            raise ValueError(message)
+
+        return self
 
 
 @lru_cache

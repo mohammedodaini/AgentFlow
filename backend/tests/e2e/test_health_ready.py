@@ -23,7 +23,7 @@ async def test_returns_200_when_the_database_is_reachable(client: AsyncClient) -
     response = await client.get(READY_URL)
 
     assert response.status_code == HTTPStatus.OK
-    assert response.json() == {"status": "ready", "checks": {"database": True}}
+    assert response.json() == {"status": "ready", "checks": {"database": True, "redis": True}}
 
 
 async def test_returns_503_when_a_dependency_is_down(
@@ -35,15 +35,18 @@ async def test_returns_503_when_a_dependency_is_down(
     serving errors, because nothing upstream reads the body.
     """
 
-    async def _database_down(_session_factory: object) -> dict[str, bool]:
-        return {"database": False}
+    async def _database_down(_session_factory: object, _redis: object) -> dict[str, bool]:
+        return {"database": False, "redis": True}
 
     monkeypatch.setattr(health, "check_readiness", _database_down)
 
     response = await client.get(READY_URL)
 
     assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
-    assert response.json() == {"status": "not_ready", "checks": {"database": False}}
+    assert response.json() == {
+        "status": "not_ready",
+        "checks": {"database": False, "redis": True},
+    }
 
 
 async def test_the_body_names_the_failing_dependency(
@@ -51,7 +54,7 @@ async def test_the_body_names_the_failing_dependency(
 ) -> None:
     """Whoever is paged should not have to grep logs to learn what a 503 meant."""
 
-    async def _mixed(_session_factory: object) -> dict[str, bool]:
+    async def _mixed(_session_factory: object, _redis: object) -> dict[str, bool]:
         return {"database": True, "redis": False}
 
     monkeypatch.setattr(health, "check_readiness", _mixed)
@@ -72,8 +75,8 @@ async def test_liveness_stays_independent_of_the_database(
     dependency outage into a full one.
     """
 
-    async def _database_down(_session_factory: object) -> dict[str, bool]:
-        return {"database": False}
+    async def _database_down(_session_factory: object, _redis: object) -> dict[str, bool]:
+        return {"database": False, "redis": True}
 
     monkeypatch.setattr(health, "check_readiness", _database_down)
 

@@ -16,7 +16,10 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "python-multipart>=0.0.12",     # form / file uploads
     # --- Settings & validation ---
-    "pydantic>=2.9",
+    # [email] pulls in email-validator, which backs pydantic's EmailStr.
+    # Validating addresses at the API boundary (M3) beats discovering a
+    # malformed one when a password-reset email silently fails to send.
+    "pydantic[email]>=2.9",
     "pydantic-settings>=2.6",
     # --- Database ---
     "sqlalchemy[asyncio]>=2.0",

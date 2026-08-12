@@ -1,21 +1,157 @@
-# mypy: ignore-errors
-# ^ remove this pragma when the module below is implemented
-# ruff: noqa: F401  — remove once this module is implemented (M3)
 """Auth FLOWS: register, login, refresh, logout.
 
 Uses core/security primitives; owns the transaction (register = user +
 personal org + owner membership + audit event, atomically).
+
+"Owns the transaction" means it decides what belongs in one — not that it
+commits. The commit stays in `get_db()` (see app/db/deps.py), which is what
+lets a future flow wrap this one in a larger unit of work.
 """
 
 from __future__ import annotations
 
+import structlog
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.tokens import TokenPair, TokenService
 from app.core.exceptions import AuthenticationError, DuplicateEmailError
-from app.core.security import create_token, hash_password, verify_password
-from app.models.membership import Membership
-from app.models.organization import Organization
+from app.core.security import hash_password, needs_rehash, verify_password
 from app.models.user import User
+from app.schemas.auth import LoginRequest, RegisterRequest
+from app.services.organization_service import OrganizationService
 
-# TODO(M3): class AuthService — register, login (vague error on bad creds:
-#           never reveal which of email/password was wrong), refresh, logout
+logger = structlog.get_logger(__name__)
+
+_INVALID_CREDENTIALS = "Incorrect email or password"
+"""One message for "no such user" and for "wrong password".
+
+Distinguishing them turns the login endpoint into an account-enumeration
+oracle: an attacker learns which addresses are registered, which is exactly the
+list they want before a credential-stuffing run. The same reasoning applies to
+the *timing* of the two paths — see `login`.
+"""
+
+_TIMING_EQUALISER_HASH = "$argon2id$v=19$m=65536,t=3,p=4$AAAAAAAAAAAAAAAAAAAAAA$" + "A" * 43
+"""A syntactically valid Argon2 hash that nothing can match.
+
+Verified against when no user exists, so both paths spend the same ~50 ms in
+Argon2. Skip this and "no such user" returns in a millisecond while "wrong
+password" takes fifty — a difference any client can measure, which rebuilds the
+enumeration oracle that the shared error message just closed.
+"""
+
+
+class AuthService:
+    """Registration and session flows.
+
+    Composes two other services rather than reimplementing them:
+    `OrganizationService` knows how to create an org with an owner, and
+    `TokenService` knows the token lifecycle. This class knows the *order*.
+    """
+
+    def __init__(self, session: AsyncSession, tokens: TokenService) -> None:
+        self._session = session
+        self._tokens = tokens
+        self._organizations = OrganizationService(session)
+
+    async def register(self, request: RegisterRequest) -> tuple[User, TokenPair]:
+        """Create an account, its personal organization, and a token pair.
+
+        Why an organization is created here rather than later: every other
+        table in this application hangs off `organizations`, so a user without
+        one cannot upload a document or start an agent run. Making the first
+        organization a separate step the client must remember means every
+        client gets to forget it, and the resulting half-provisioned accounts
+        are indistinguishable from bugs.
+
+        All three rows are written in one transaction. A user with no
+        organization, or an organization with no owner, must never be a state
+        this system can be observed in.
+        """
+        email = request.email
+
+        if await self._session.scalar(select(User.id).where(User.email == email)):
+            message = "An account with that email already exists"
+            raise DuplicateEmailError(message)
+
+        user = User(
+            email=email,
+            password_hash=hash_password(request.password.get_secret_value()),
+            full_name=request.full_name,
+        )
+        self._session.add(user)
+        await self._session.flush()
+
+        organization, _ = await self._organizations.create(
+            name=request.full_name or email.split("@")[0],
+            owner=user,
+        )
+
+        logger.info(
+            "auth.registered",
+            user_id=str(user.id),
+            organization_id=str(organization.id),
+        )
+        # TODO(M16): write an `events` audit row here.
+        return user, self._tokens.issue_pair(user.id)
+
+    async def login(self, request: LoginRequest) -> tuple[User, TokenPair]:
+        """Verify credentials and issue a token pair.
+
+        Note the shape of the failure handling: every rejection raises the same
+        error with the same message, and the no-such-user path still performs a
+        hash verification so it costs the same time as a real one.
+
+        Deactivated accounts are rejected here too, deliberately with that same
+        message. Telling a disabled user "your account is suspended" also tells
+        anyone working through a stolen password list which of their guesses
+        were correct.
+        """
+        email = request.email
+        password = request.password.get_secret_value()
+
+        user = await self._session.scalar(select(User).where(User.email == email))
+
+        if user is None:
+            verify_password(password, _TIMING_EQUALISER_HASH)
+            logger.info("auth.login_failed", reason="unknown_email")
+            raise AuthenticationError(_INVALID_CREDENTIALS)
+
+        if not verify_password(password, user.password_hash):
+            logger.info("auth.login_failed", reason="bad_password", user_id=str(user.id))
+            raise AuthenticationError(_INVALID_CREDENTIALS)
+
+        if not user.is_active:
+            logger.info("auth.login_failed", reason="inactive", user_id=str(user.id))
+            raise AuthenticationError(_INVALID_CREDENTIALS)
+
+        # Login is the only moment the plaintext password exists, so it is the
+        # only moment a hash made with older, cheaper parameters can be
+        # upgraded. Users re-hash silently, one at a time, as they sign in.
+        if needs_rehash(user.password_hash):
+            user.password_hash = hash_password(password)
+            logger.info("auth.password_rehashed", user_id=str(user.id))
+
+        logger.info("auth.login_succeeded", user_id=str(user.id))
+        return user, self._tokens.issue_pair(user.id)
+
+    async def refresh(self, refresh_token: str) -> TokenPair:
+        """Exchange a refresh token for a new pair, invalidating the old one.
+
+        Thin by design — the interesting logic is rotation and replay
+        detection, and that lives in `TokenService`, where the denylist is.
+        """
+        return await self._tokens.rotate(refresh_token)
+
+    async def logout(self, refresh_token: str) -> None:
+        """Revoke a refresh token.
+
+        Only the refresh token. The access token stays valid for up to its
+        remaining 30 minutes, because checking a denylist on every request
+        would put a Redis round trip in front of every endpoint. That is the
+        standard trade, and it is why the access TTL is short — but it does
+        mean "log out everywhere, right now" is not something this design can
+        honestly promise. See docs/milestones/M3-authentication.md.
+        """
+        await self._tokens.revoke(refresh_token)

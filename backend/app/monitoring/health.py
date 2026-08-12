@@ -5,13 +5,14 @@ the route stays thin and the checks are unit-testable.
 
 Imported by: app/api/v1/routes/health.py.
 
-Why Redis is not probed yet
----------------------------
-The original plan listed Redis alongside Postgres. Nothing uses Redis until
-M5, and a readiness probe should report whether *this* deployment can serve
-*its* traffic. Probing an unused dependency means a Redis blip pulls the API
-out of the load balancer for no reason. The Redis check joins this module at
-M5, together with the connection pool that makes it cheap.
+What gets probed, and when it started
+-------------------------------------
+Postgres from M2. Redis from M3 — not M5 as originally planned, because the
+refresh-token denylist moved forward with `/auth/logout`, and the rule this
+module follows is *probe what you actually use*. An unused dependency in the
+readiness check means an outage in something irrelevant pulls a healthy API
+out of the load balancer; a used one left out means the opposite, an instance
+accepting traffic it cannot serve.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from __future__ import annotations
 import asyncio
 
 import structlog
+from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -59,13 +61,43 @@ async def check_database(session_factory: async_sessionmaker[AsyncSession]) -> b
     return True
 
 
-async def check_readiness(session_factory: async_sessionmaker[AsyncSession]) -> dict[str, bool]:
+async def check_redis(redis: Redis) -> bool:
+    """Return whether Redis answers a PING in time.
+
+    Readiness, not liveness: with Redis down, login still works but logout
+    cannot revoke anything, so the instance should stop taking traffic rather
+    than silently degrade to a system where signing out does nothing.
+    """
+    try:
+        async with asyncio.timeout(PROBE_TIMEOUT_SECONDS):
+            await redis.ping()
+    except Exception as exc:  # noqa: BLE001 — a probe converts *any* failure to a bool
+        logger.warning(
+            "health.redis_unreachable",
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+        return False
+
+    return True
+
+
+async def check_readiness(
+    session_factory: async_sessionmaker[AsyncSession], redis: Redis
+) -> dict[str, bool]:
     """Run every dependency probe and report each one by name.
 
     A dict rather than a bare bool because "not ready" on its own tells an
-    on-call engineer nothing. `{"database": false}` tells them where to look.
+    on-call engineer nothing. `{"database": false, "redis": true}` tells them
+    where to look.
 
-    Probes will run concurrently once there is more than one; wrapping a single
-    call in `asyncio.gather` today would be ceremony.
+    The probes run concurrently. Sequentially, two 2-second timeouts stack into
+    a 4-second worst case, and each dependency added later would push the probe
+    further past the orchestrator's own deadline — at which point the readiness
+    check fails because it is slow rather than because anything is wrong.
     """
-    return {"database": await check_database(session_factory)}
+    database_ok, redis_ok = await asyncio.gather(
+        check_database(session_factory),
+        check_redis(redis),
+    )
+    return {"database": database_ok, "redis": redis_ok}

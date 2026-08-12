@@ -36,6 +36,9 @@ def test_environment_variables_override_defaults(monkeypatch: pytest.MonkeyPatch
 def test_app_env_maps_to_env_field(monkeypatch: pytest.MonkeyPatch) -> None:
     """`APP_ENV` is the documented variable name; `settings.env` is the field."""
     monkeypatch.setenv("APP_ENV", "production")
+    # M3: production refuses to start on the placeholder signing key, so any
+    # test claiming to be production has to supply a real one.
+    monkeypatch.setenv("SECRET_KEY", "f" * 64)
 
     assert Settings().env == "production"
 
@@ -54,6 +57,7 @@ def test_is_development_tracks_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert Settings().is_development is True
 
     monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("SECRET_KEY", "f" * 64)  # see the note in the test above
     assert Settings().is_development is False
 
 

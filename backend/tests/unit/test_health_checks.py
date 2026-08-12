@@ -10,12 +10,17 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Coroutine
-from typing import Any, Self
+from typing import Any, Self, cast
 
 import pytest
 
 from app.monitoring import health
-from app.monitoring.health import PROBE_TIMEOUT_SECONDS, check_database, check_readiness
+from app.monitoring.health import (
+    PROBE_TIMEOUT_SECONDS,
+    check_database,
+    check_readiness,
+    check_redis,
+)
 
 Behaviour = Callable[[], Coroutine[Any, Any, None]]
 
@@ -92,10 +97,42 @@ async def test_a_hanging_database_times_out_rather_than_blocking(
     assert elapsed < 1.0
 
 
+class _StubRedis:
+    """Just the `ping()` the probe calls."""
+
+    def __init__(self, *, reachable: bool) -> None:
+        self._reachable = reachable
+
+    async def ping(self) -> bool:
+        if not self._reachable:
+            raise ConnectionRefusedError("connection refused")
+        return True
+
+
+async def test_redis_probe_reports_reachability() -> None:
+    assert await check_redis(cast(Any, _StubRedis(reachable=True))) is True
+    assert await check_redis(cast(Any, _StubRedis(reachable=False))) is False
+
+
 async def test_readiness_names_each_dependency() -> None:
     """`{"database": false}` tells whoever is paged where to look; `false` does not."""
-    assert await check_readiness(_factory(_succeed)) == {"database": True}
-    assert await check_readiness(_factory(_refuse_connection)) == {"database": False}
+    healthy_redis = cast(Any, _StubRedis(reachable=True))
+
+    assert await check_readiness(_factory(_succeed), healthy_redis) == {
+        "database": True,
+        "redis": True,
+    }
+    assert await check_readiness(_factory(_refuse_connection), healthy_redis) == {
+        "database": False,
+        "redis": True,
+    }
+
+
+async def test_readiness_reports_a_redis_outage_separately() -> None:
+    """Two dependencies, two independent answers — that is the point of the dict."""
+    checks = await check_readiness(_factory(_succeed), cast(Any, _StubRedis(reachable=False)))
+
+    assert checks == {"database": True, "redis": False}
 
 
 @pytest.mark.parametrize("exception_type", [ValueError, RuntimeError, OSError])
