@@ -96,7 +96,100 @@ exclude = ["alembic/"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "--cov=app --cov-report=term-missing"
+# --strict-markers: a typo'd marker fails the run instead of silently
+#   selecting nothing, which is how "we run the integration suite in CI"
+#   quietly becomes "we run zero tests in CI".
+# The coverage threshold lives in [tool.coverage.report] below, not here, so
+# `coverage report` run by hand enforces the same number pytest does.
+addopts = "--cov=app --cov-report=term-missing --strict-markers"
+markers = [
+    "unit: no I/O at all — pure functions and in-memory objects (milliseconds)",
+    "integration: talks to a real PostgreSQL/Redis (tens of milliseconds)",
+    "e2e: drives the app over HTTP through the full stack (hundreds)",
+]
+
+# --- Coverage ---
+[tool.coverage.run]
+source = ["app"]
+branch = true  # 'if x:' counts as covered only when both outcomes are taken
+
+# SQLAlchemy's asyncio layer runs its work inside greenlets (greenlet_spawn).
+# Without this, every line executed under `await session.execute(...)` is
+# invisible to coverage: the service layer reported 57% while end-to-end tests
+# were demonstrably exercising it, and the "uncovered" lines were things like
+# `return membership` on the hottest path in the application.
+# A coverage gate that under-reports is worse than none — it teaches people to
+# distrust the number.
+concurrency = ["greenlet", "thread"]
+
+# Modules that are still scaffolding: imports, docstrings and milestone TODOs
+# with no class or function in them. Counting them would peg total coverage to
+# how much of the roadmap is built rather than how well the built part is
+# tested — a number that falls every time someone adds a stub, and that no one
+# can act on.
+#
+# This list cannot go stale unnoticed: tests/unit/test_stub_manifest.py
+# reconciles it against the source tree in both directions, so implementing a
+# module while leaving it here fails the suite.
+omit = [
+    "app/agents/**/*.py",
+    "app/evaluation/**/*.py",
+    "app/integrations/**/*.py",
+    "app/memory/**/*.py",
+    "app/prompts/**/*.py",
+    "app/rag/**/*.py",
+    "app/repositories/**/*.py",
+    "app/workers/**/*.py",
+    "app/api/v1/routes/agent_runs.py",
+    "app/api/v1/routes/approvals.py",
+    "app/api/v1/routes/conversations.py",
+    "app/api/v1/routes/documents.py",
+    "app/api/v1/routes/integrations.py",
+    "app/api/v1/routes/retrieval.py",
+    "app/middleware/rate_limit.py",
+    "app/monitoring/metrics.py",
+    "app/models/agent_run.py",
+    "app/models/agent_step.py",
+    "app/models/approval.py",
+    "app/models/conversation.py",
+    "app/models/document.py",
+    "app/models/document_chunk.py",
+    "app/models/event.py",
+    "app/models/integration.py",
+    "app/models/memory.py",
+    "app/models/message.py",
+    "app/models/oauth_token.py",
+    "app/models/task.py",
+    "app/schemas/agent_run.py",
+    "app/schemas/approval.py",
+    "app/schemas/conversation.py",
+    "app/schemas/document.py",
+    "app/schemas/integration.py",
+    "app/schemas/memory.py",
+    "app/services/agent_service.py",
+    "app/services/approval_service.py",
+    "app/services/conversation_service.py",
+    "app/services/document_service.py",
+    "app/services/integration_service.py",
+]
+
+[tool.coverage.report]
+# A ratchet, not a target: it records the floor already reached, so a change
+# that drops coverage fails loudly. Raise it when a milestone clears it by a
+# margin; never lower it to make a red build green.
+#
+# Two points below the current 99% — enough slack that adding a defensive
+# branch does not fail the build, tight enough that deleting a test does.
+# Chasing 100% is how suites fill with tests that assert nothing.
+fail_under = 97
+show_missing = true
+exclude_also = [
+    "if TYPE_CHECKING:",             # never executed at runtime
+    "raise NotImplementedError",
+    "@(abc\\.)?abstractmethod",
+    "if __name__ == .__main__.:",
+    "\\.\\.\\.",                     # Protocol/overload bodies
+]
 
 [build-system]
 requires = ["hatchling"]

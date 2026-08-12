@@ -26,6 +26,15 @@ worker:          ## Run the background task worker
 test:            ## Run the test suite with coverage
 	cd backend && uv run pytest
 
+test-fast:       ## Unit tests only — no database, no Redis (sub-second)
+	cd backend && uv run pytest -m unit --no-cov
+
+test-pyramid:    ## Show the shape of the suite: unit vs integration vs e2e
+	@cd backend && for layer in unit integration e2e; do \
+		printf "%-12s " "$$layer"; \
+		uv run pytest -m $$layer --collect-only -q --no-cov 2>/dev/null | tail -1; \
+	done
+
 lint:            ## Lint (no changes)
 	cd backend && uv run ruff check .
 

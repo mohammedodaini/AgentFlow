@@ -16,20 +16,21 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Membership, Organization, Role, User
+from tests.factories import make_organization, make_user
 
 
 async def _make_org(session: AsyncSession, slug: str = "acme") -> Organization:
-    organization = Organization(name="Acme Corp", slug=slug)
-    session.add(organization)
-    await session.flush()
-    return organization
+    """Thin wrapper over the shared factory.
+
+    Kept because these tests are *about* the schema, so they name the slug and
+    email they assert on. The factory supplies everything else, and there is
+    one definition of "a valid user row" in the suite rather than two.
+    """
+    return await make_organization(session, name="Acme Corp", slug=slug)
 
 
 async def _make_user(session: AsyncSession, email: str = "ada@example.com") -> User:
-    user = User(email=email, password_hash="not-a-real-hash")
-    session.add(user)
-    await session.flush()
-    return user
+    return await make_user(session, email=email)
 
 
 async def test_insert_and_read_back_the_tenancy_graph(db_session: AsyncSession) -> None:
