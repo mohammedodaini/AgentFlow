@@ -26,13 +26,33 @@ from app.repositories.chunk_repository import ChunkRepository, ScoredChunk
 logger = structlog.get_logger(__name__)
 
 DEFAULT_MIN_SCORE = 0.0
-"""No relevance floor by default.
+"""No relevance floor. **Measured at M8, not guessed.**
 
-Tempting to set one — filtering out weak matches obviously improves a demo. It
-is left off because the right threshold depends on the embedding model, and
-picking one by eye means silently returning nothing for questions whose answer
-sits just under an arbitrary line. A user reading "no results" cannot tell that
-from "we found it and hid it". M8 sets this from measurements.
+M6 left this at zero on the argument that picking a threshold by eye means
+silently returning nothing for questions whose answer sits just under an
+arbitrary line. M8 built the instrument to check that, and the answer came back
+stronger than the argument: on the `handbook` golden set, *no* non-zero
+threshold beats zero.
+
+    threshold   correct refusals   answerable lost   overall accuracy
+        0.000              0 / 4            0 / 11              0.733
+        0.100              1 / 4            2 / 11              0.667
+        0.220              2 / 4            6 / 11              0.467
+        0.263              4 / 4            9 / 11              0.400
+
+The two populations overlap outright — the lowest-scoring *answerable* question
+scores 0.069 while the highest-scoring *unanswerable* one scores 0.262 — so
+every threshold that catches a refusal discards more real answers than it saves.
+
+The conclusion is the useful part: **refusal is a judgement about meaning, and a
+similarity score cannot make it.** It belongs to the model reading the context,
+which is what `app/prompts/rag/system.md` instructs and what
+`MIN_EVIDENCE_SCORE` in `generation.py` deliberately does not attempt.
+
+Caveat, stated plainly: measured with the offline hashing embedder, which
+matches words rather than meaning. A semantic embedder should separate these
+populations far better, and the measurement must be repeated once a key exists.
+What generalises here is the method, not the number.
 """
 
 

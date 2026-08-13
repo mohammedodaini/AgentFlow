@@ -66,47 +66,46 @@ half-milestone and call it shipped.
 ## Where the project is
 
 `CLAUDE.md` is authoritative — read it, not this paragraph, for the current
-position. As of the last update: **M1–M7 shipped**, next is **M8**.
+position. As of the last update: **M1–M8 shipped**, next is **M9**.
 
 The working mode is **autonomous through M12**, at the user's explicit
 instruction: *"let us do that and just finsh m6-m12 without mentor mode"*.
 Mentor mode resumes at M13.
 
-## M8 — RAG evaluation
+## M9 — the first agent (LangGraph)
 
-`docs/roadmap.md` is the specification. In outline:
+`docs/roadmap.md` and `docs/agents.md` are the specification. In outline:
 
-- A golden set: questions, the chunk(s) that should be retrieved, and a
-  reference answer. Small and hand-written beats large and generated — twenty
-  questions someone actually cares about will find more than two hundred
-  paraphrases of each other.
-- Retrieval metrics first (recall@k, MRR), because they are cheap,
-  deterministic, and they bound everything downstream.
-- Answer scoring second, LLM-as-judge. **This is the part that needs a key**,
-  so build it behind the same seam and give it a deterministic offline judge
-  for the tests.
-- Then, and only then, tune what M6 and M7 left as guesses: `chunk_size_tokens`
-  (400), `chunk_overlap_tokens` (60), `retrieval_top_k` (5),
-  `context_token_budget` (8000), and `DEFAULT_MIN_SCORE` (0.0, no floor). Each
-  of those is documented as "a starting point, not a finding" — replace those
-  sentences with numbers and the measurement that produced them.
-- `app/evaluation/` already exists as stubs. It is currently in the coverage
-  omit list in `pyproject.toml`; remove its entry as you implement, or
-  `tests/unit/test_stub_manifest.py` will fail — which is what it is for.
+- **One** agent — the RAG agent — with tools, not a supervisor and specialists.
+  `docs/agents.md` describes the eventual multi-agent system; M15 builds it, and
+  only where the single agent measurably falls short. Refuse to jump ahead.
+- `agent_runs` and `agent_steps` tables: every step traced, so a wrong answer
+  can be replayed rather than guessed at. This is the milestone where "why did
+  it do that?" stops being answerable and starts needing data.
+- `search_chunks` as the first tool, wrapping the M6 retriever. The agent should
+  use the *same* code path `/search` and `/ask` use — a second retrieval
+  implementation is how the eval stops measuring the product.
+- Checkpointing, because M12's human-in-the-loop needs a graph that can be
+  interrupted and resumed.
+- `langgraph` and `langchain-core` are already in `pyproject.toml`.
 
-**What you can and cannot verify without a key:** the harness, the metrics
-arithmetic, the golden-set loading, the report — all testable offline against
-the hashing embedder. Whether the *numbers* mean anything about a real
-embedding model — not testable. Say so plainly.
+**Before you finish: `make eval` must still pass.** The agent is a new path to
+the same answers, and ADR-0011 exists precisely so that a change like this
+cannot silently make retrieval worse. If the agent path should be evaluated
+separately, add a dataset rather than weakening the gate.
 
-## M9–M12, in order
+**What you can and cannot verify without a key:** the graph, the state
+transitions, the tracing, the tool wiring, the interrupts — all testable with
+the offline provider. Whether the agent *chooses* tools sensibly — not testable,
+because the offline provider does not choose anything. Say so plainly.
+
+## M10–M12, in order
 
 None of these need an API key to build, and all of them need one to *evaluate*.
 Same honesty rule: verify the plumbing, state the limit.
 
 | Milestone | What it is | The key risk |
 |---|---|---|
-| M9 | The single agent: LangGraph, tools, `search_chunks` | Building multi-agent before single-agent works. Refuse |
 | M10 | Memory: conversation + long-term, `app/memory/` | Unbounded context growth; summarisation must be tested |
 | M11 | Human approval: a DB record **and** a LangGraph interrupt | An approval that is only an interrupt does not survive a restart |
 | M12 | Observability: traces, token/cost accounting per run | Metrics nobody reads. Instrument what a bill or an incident needs |

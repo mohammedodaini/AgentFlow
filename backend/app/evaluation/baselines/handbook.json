@@ -1,0 +1,24 @@
+{
+  "aggregate": {
+    "answer_match": 0.2727272727272727,
+    "citation_accuracy": 1.0,
+    "completeness": 1.6666666666666667,
+    "faithfulness": 1.6,
+    "mrr": 0.8636363636363636,
+    "precision": 0.3484848484848485,
+    "recall": 1.0,
+    "refusal_accuracy": 0.0,
+    "relevance": 1.8666666666666667
+  },
+  "dataset": "handbook",
+  "generated_at": "2026-08-13T14:17:16.008930+00:00",
+  "settings": {
+    "chunk_overlap_tokens": 60,
+    "chunk_size_tokens": 400,
+    "context_token_budget": 8000,
+    "embedding_provider": "hashing",
+    "llm_model": "claude-sonnet-5",
+    "llm_provider": "offline",
+    "retrieval_top_k": 5
+  }
+}

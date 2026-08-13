@@ -1,0 +1,133 @@
+{
+  "name": "handbook",
+  "description": "A small hand-written employee-handbook corpus. Fifteen questions covering direct lookup, paraphrase, multi-document synthesis, and four the corpus deliberately cannot answer. Small on purpose: twenty questions someone actually cares about find more than two hundred paraphrases of each other, and a set a human can read in one sitting is a set a human will keep honest.",
+  "documents": [
+    {
+      "id": "expenses",
+      "title": "expenses-policy.md",
+      "content": "Expense reimbursement\n\nExpenses are reimbursed monthly, provided an itemised receipt is attached to the claim form. Claims must be submitted within 60 days of the expense being incurred; anything older is refused automatically and requires a written exception from a director.\n\nMeals during business travel are reimbursed up to 45 pounds per day. Alcohol is never reimbursed, including when it appears on an otherwise valid meal receipt.\n\nAny single expense above 500 pounds requires prior written approval from a line manager before the money is spent. Approval obtained afterwards does not count, and the claim will be refused."
+    },
+    {
+      "id": "leave",
+      "title": "leave-policy.md",
+      "content": "Annual leave and holiday\n\nHoliday requests must be approved by a line manager at least two weeks ahead of the intended dates. Requests covering more than ten consecutive working days need a second approval from a director.\n\nEvery employee receives 28 days of paid annual leave per year, inclusive of public holidays. Up to five unused days may be carried into the following year; anything beyond five is lost on 31 December.\n\nSick leave is separate from annual leave and is not capped, but absences longer than seven consecutive days require a doctor's note."
+    },
+    {
+      "id": "equipment",
+      "title": "equipment-policy.md",
+      "content": "Equipment and workspace\n\nEvery employee is issued a laptop on their first day. Replacement is on a three-year cycle, or sooner if the machine fails and cannot be economically repaired.\n\nA home-office budget of 400 pounds is available in an employee's first year, and 150 pounds each year after that. It covers desks, chairs, monitors and lighting. It does not cover consumables such as paper or ink.\n\nLost or stolen equipment must be reported to IT within 24 hours so the device can be remotely wiped."
+    },
+    {
+      "id": "facilities",
+      "title": "facilities.md",
+      "content": "Office facilities\n\nThe office plants are watered every Tuesday by the facilities team. Please do not water them yourself; overwatering has killed more plants here than neglect.\n\nMeeting rooms are booked through the shared calendar. A room held but unused for fifteen minutes is released automatically.\n\nThe kitchen is restocked on Monday and Thursday mornings."
+    }
+  ],
+  "examples": [
+    {
+      "id": "expenses-cadence",
+      "question": "How often are expenses reimbursed?",
+      "relevant_document_ids": ["expenses"],
+      "answer_contains": ["monthly"],
+      "reference_answer": "Expenses are reimbursed monthly, provided an itemised receipt is attached to the claim form."
+    },
+    {
+      "id": "expenses-deadline",
+      "question": "How long do I have to submit an expense claim?",
+      "relevant_document_ids": ["expenses"],
+      "answer_contains": ["60 days"],
+      "reference_answer": "Claims must be submitted within 60 days of the expense being incurred. Older claims are refused automatically and need a written exception from a director."
+    },
+    {
+      "id": "expenses-large-purchase",
+      "question": "Do I need approval before buying something expensive?",
+      "relevant_document_ids": ["expenses"],
+      "answer_contains": ["500"],
+      "reference_answer": "Yes. Any single expense above 500 pounds needs prior written approval from a line manager, obtained before the money is spent."
+    },
+    {
+      "id": "expenses-alcohol",
+      "question": "Can I claim back a bottle of wine from a client dinner?",
+      "relevant_document_ids": ["expenses"],
+      "answer_contains": ["Alcohol"],
+      "reference_answer": "No. Alcohol is never reimbursed, including when it appears on an otherwise valid meal receipt."
+    },
+    {
+      "id": "leave-notice",
+      "question": "How much notice do I need to give for holiday?",
+      "relevant_document_ids": ["leave"],
+      "answer_contains": ["two weeks"],
+      "reference_answer": "Holiday requests need line-manager approval at least two weeks before the intended dates. More than ten consecutive working days also needs a director's approval."
+    },
+    {
+      "id": "leave-allowance",
+      "question": "How many days of annual leave do I get?",
+      "relevant_document_ids": ["leave"],
+      "answer_contains": ["28"],
+      "reference_answer": "28 days of paid annual leave per year, inclusive of public holidays."
+    },
+    {
+      "id": "leave-carryover",
+      "question": "What happens to holiday I do not use by the end of the year?",
+      "relevant_document_ids": ["leave"],
+      "answer_contains": ["five"],
+      "reference_answer": "Up to five unused days carry into the following year. Anything beyond five is lost on 31 December."
+    },
+    {
+      "id": "equipment-home-office",
+      "question": "Is there a budget for a desk and chair at home?",
+      "relevant_document_ids": ["equipment"],
+      "answer_contains": ["400"],
+      "reference_answer": "Yes — 400 pounds in your first year and 150 pounds each year after, covering desks, chairs, monitors and lighting but not consumables."
+    },
+    {
+      "id": "equipment-stolen-laptop",
+      "question": "My laptop was stolen. What should I do?",
+      "relevant_document_ids": ["equipment"],
+      "answer_contains": ["24 hours"],
+      "reference_answer": "Report it to IT within 24 hours so the device can be remotely wiped."
+    },
+    {
+      "id": "facilities-plants",
+      "question": "Who waters the office plants?",
+      "relevant_document_ids": ["facilities"],
+      "answer_contains": ["facilities"],
+      "reference_answer": "The facilities team waters them every Tuesday. Employees are asked not to water them themselves."
+    },
+    {
+      "id": "cross-document-travel",
+      "question": "I am travelling for work and need to book time off and claim meals. What are the rules?",
+      "relevant_document_ids": ["expenses", "leave"],
+      "answer_contains": ["45"],
+      "reference_answer": "Meals during business travel are reimbursed up to 45 pounds per day, with no alcohol. Time off needs line-manager approval at least two weeks ahead."
+    },
+    {
+      "id": "refusal-parental-leave",
+      "question": "What is the parental leave entitlement?",
+      "relevant_document_ids": [],
+      "expect_refusal": true,
+      "reference_answer": "I could not find anything about that in your documents."
+    },
+    {
+      "id": "refusal-salary-bands",
+      "question": "What are the salary bands for a senior engineer?",
+      "relevant_document_ids": [],
+      "expect_refusal": true,
+      "reference_answer": "I could not find anything about that in your documents."
+    },
+    {
+      "id": "refusal-pension",
+      "question": "How much does the company contribute to my pension?",
+      "relevant_document_ids": [],
+      "expect_refusal": true,
+      "reference_answer": "I could not find anything about that in your documents."
+    },
+    {
+      "id": "refusal-notice-period",
+      "question": "What notice period do I have to give if I resign?",
+      "relevant_document_ids": [],
+      "expect_refusal": true,
+      "reference_answer": "I could not find anything about that in your documents."
+    }
+  ]
+}

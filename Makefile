@@ -26,6 +26,12 @@ worker:          ## Run the background task worker (arq)
 test:            ## Run the test suite with coverage
 	cd backend && uv run pytest
 
+eval:            ## Run the golden set — exits non-zero on a regression (M8)
+	cd backend && uv run python -m app.evaluation
+
+eval-baseline:   ## Accept this run's scores as the new baseline (read the report first)
+	cd backend && uv run python -m app.evaluation --save-baseline
+
 test-fast:       ## Unit tests only — no database, no Redis (sub-second)
 	cd backend && uv run pytest -m unit --no-cov
 

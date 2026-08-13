@@ -150,7 +150,6 @@ concurrency = ["greenlet", "thread"]
 # package-wide omit is only ever safe while the package is entirely empty.
 omit = [
     "app/agents/**/*.py",
-    "app/evaluation/**/*.py",
     "app/integrations/**/*.py",
     "app/memory/**/*.py",
     "app/repositories/agent_run_repository.py",
