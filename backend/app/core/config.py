@@ -198,6 +198,66 @@ class Settings(BaseSettings):
     on purpose: every extra chunk is context spent, and precision at the top of
     the list matters far more than recall deep in it."""
 
+    # --- Generation (M7) ---
+    llm_provider: Literal["anthropic", "offline"] = "offline"
+    """Which `LLMProvider` to build.
+
+    Defaults to `offline` for the same reason `embedding_provider` defaults to
+    `hashing`: a fresh clone must run its whole test suite with no API key and
+    no network. The offline provider quotes retrieved sentences rather than
+    writing prose, so it is obviously not a product — and the validator below
+    refuses it in production anyway.
+    """
+
+    anthropic_api_key: SecretStr = SecretStr("")
+    """`SecretStr` so it cannot leak through a `repr()`, a log line, or a
+    pydantic validation error that echoes the value it failed on."""
+
+    llm_model: str = "claude-sonnet-5"
+    """Sonnet rather than Opus for RAG answers.
+
+    The job here is to summarise three retrieved paragraphs faithfully and cite
+    them, not to reason from scratch — and on that job the cheaper, faster model
+    is not measurably worse. M8 exists to replace this sentence with a
+    measurement; until then it is a defensible guess, and labelled as one.
+    """
+
+    llm_max_tokens: int = 1024
+    """A ceiling on the *answer*, not the context.
+
+    Required by the Anthropic API, so there is no "unlimited" to choose. 1024 is
+    roughly 750 words — long enough for a thorough answer over five chunks, and
+    short enough that a runaway generation is a rounding error rather than an
+    incident. `Completion.was_truncated` reports when it binds, because a
+    truncated answer raises nothing and reads like a complete one.
+    """
+
+    llm_temperature: float = 0.0
+    """Zero, deliberately, and the one number here worth defending.
+
+    A RAG answer is an act of faithful summarisation, not of creativity: every
+    degree of sampling randomness is an opportunity to drift from the retrieved
+    text, which is exactly what citations exist to prevent. Zero also makes
+    answers reproducible, without which M8's evaluation would spend half its
+    time measuring sampling noise instead of prompt changes.
+    """
+
+    llm_timeout_seconds: float = 60.0
+    """A request with no timeout does not fail — it hangs, holding a connection
+    open, and the client sees a spinner rather than an error. The same reasoning
+    as `arq_job_timeout_seconds`."""
+
+    context_token_budget: int = 8000
+    """How many tokens of retrieved context may be sent with a question.
+
+    Far below the model's context window, and that is the point. The window is
+    the *limit*; this is the *budget*. Filling a 200k window with every
+    plausible chunk costs real money on every question and measurably degrades
+    answers — relevant passages get buried among marginal ones. Five chunks at
+    400 tokens is 2k, so this leaves generous headroom while still bounding the
+    bill if `top_k` is raised.
+    """
+
     @property
     def is_development(self) -> bool:
         """True only in local development — drives human-readable log output."""
@@ -254,6 +314,29 @@ class Settings(BaseSettings):
             # so the user sees `status=failed` on their file rather than an
             # operator seeing a misconfigured deploy.
             message = "EMBEDDING_PROVIDER is 'openai' but OPENAI_API_KEY is empty."
+            raise ValueError(message)
+
+        if self.llm_provider == "offline":
+            # M7, and the same argument as the embedder one above with the
+            # volume turned up. The offline provider does not generate — it
+            # quotes the best-matching retrieved sentence. Shipped to users it
+            # would answer every question with a fragment of a document and no
+            # explanation, which is not a degraded product so much as a
+            # different, worse one.
+            message = (
+                "LLM_PROVIDER is 'offline' in production. That provider quotes "
+                "retrieved sentences instead of generating answers, and exists "
+                "for offline development. Set LLM_PROVIDER=anthropic and "
+                "provide ANTHROPIC_API_KEY."
+            )
+            raise ValueError(message)
+
+        if not self.anthropic_api_key.get_secret_value():
+            # Caught at startup rather than on the first question. Without this
+            # the process starts healthy, passes its readiness probe, and fails
+            # only when a user asks something — so the deploy looks fine and the
+            # feature is simply broken.
+            message = "LLM_PROVIDER is 'anthropic' but ANTHROPIC_API_KEY is empty."
             raise ValueError(message)
 
         return self

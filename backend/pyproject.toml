@@ -39,7 +39,7 @@ dependencies = [
     "redis>=5.2",
     "arq>=0.26",                     # async task queue on Redis
     # --- LLM / agents (added when we reach those milestones) ---
-    "anthropic>=0.40",
+    "anthropic>=0.40",               # M7. Only app/llm/anthropic.py may import it
     "langgraph>=0.2",
     "langchain-core>=0.3",
     # --- Observability ---
@@ -153,7 +153,6 @@ omit = [
     "app/evaluation/**/*.py",
     "app/integrations/**/*.py",
     "app/memory/**/*.py",
-    "app/prompts/**/*.py",
     "app/repositories/agent_run_repository.py",
     "app/repositories/memory_repository.py",
     "app/workers/tasks/agent_execution.py",

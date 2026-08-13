@@ -37,10 +37,11 @@ def enter_production(monkeypatch: pytest.MonkeyPatch) -> None:
     """Set `APP_ENV=production` and satisfy every guard that comes with it.
 
     The list grows with the milestones — a real signing key at M3, a real
-    embedding provider at M6 — and each addition breaks every older test that
-    merely set `APP_ENV`. Collecting them here means the next guard is one edit
-    rather than a hunt through the suite for tests that claim to be production
-    and are no longer allowed to be.
+    embedding provider at M6, a real model at M7 — and each addition breaks
+    every older test that merely set `APP_ENV`. Collecting them here means the
+    next guard is one edit rather than a hunt through the suite for tests that
+    claim to be production and are no longer allowed to be. It has already paid
+    for itself twice.
 
     Tests *about* a specific guard do not use this; they set the one variable
     they are asserting on, so the failure they trigger is unambiguous.
@@ -49,6 +50,8 @@ def enter_production(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SECRET_KEY", "f" * 64)
     monkeypatch.setenv("EMBEDDING_PROVIDER", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-not-a-real-key")
 
 
 def test_app_env_maps_to_env_field(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -78,3 +81,69 @@ def test_is_development_tracks_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_get_settings_is_cached() -> None:
     """One parse per process — settings are a cheap dependency to inject."""
     assert get_settings() is get_settings()
+
+
+# --------------------------------------------------------------------------
+# production guards — the defaults that are right for a laptop and wrong for users
+# --------------------------------------------------------------------------
+#
+# Every one of these guards the same failure mode, which is why they are tested
+# together: a default that makes a fresh clone work, and that would make the
+# product quietly bad rather than visibly broken. Nothing would error. Search
+# would return worse results, or answers would be quoted fragments — and no
+# alert exists for "still running, just worse".
+
+
+def test_production_refuses_the_offline_embedder(monkeypatch: pytest.MonkeyPatch) -> None:
+    """It matches shared words, never shared meaning, so "how do I claim
+    expenses?" would miss a chunk titled "reimbursement policy"."""
+    enter_production(monkeypatch)
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "hashing")
+
+    with pytest.raises(ValidationError, match="EMBEDDING_PROVIDER"):
+        Settings()
+
+
+def test_production_refuses_openai_without_a_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Caught at startup rather than on the first upload. Otherwise the process
+    starts, accepts documents, and fails inside the worker — so the user sees
+    `status=failed` on their file instead of an operator seeing a bad deploy."""
+    enter_production(monkeypatch)
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+
+    with pytest.raises(ValidationError, match="OPENAI_API_KEY"):
+        Settings()
+
+
+def test_production_refuses_the_offline_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """M7. The offline provider quotes retrieved sentences instead of
+    generating, so shipping it would answer every question with a fragment of a
+    document and no explanation."""
+    enter_production(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "offline")
+
+    with pytest.raises(ValidationError, match="LLM_PROVIDER"):
+        Settings()
+
+
+def test_production_refuses_anthropic_without_a_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without this the process starts healthy, passes its readiness probe, and
+    fails only when a user asks something — so the deploy looks fine and the
+    feature is simply broken."""
+    enter_production(monkeypatch)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+
+    with pytest.raises(ValidationError, match="ANTHROPIC_API_KEY"):
+        Settings()
+
+
+def test_development_tolerates_every_offline_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The other half of the contract, and the reason the guards are scoped to
+    production: `git clone && make dev && pytest` must work with no API keys,
+    no network, and no ceremony."""
+    monkeypatch.setenv("APP_ENV", "development")
+
+    settings = Settings()
+
+    assert settings.embedding_provider == "hashing"
+    assert settings.llm_provider == "offline"

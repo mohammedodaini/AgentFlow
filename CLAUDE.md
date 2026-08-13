@@ -46,17 +46,23 @@ past M4 without asking.
 
 ## Current position
 
-- **Phase:** **M1–M6 complete (2026-08-13).** `make check` green — ruff, ruff
-  format, mypy strict over **191 files**, **316 tests**, **98.0% coverage**
-  (gate at 97%). Pyramid: unit 176 / integration 62 / e2e 80.
-  See [docs/milestones/M6-rag-pipeline.md](docs/milestones/M6-rag-pipeline.md).
+- **Phase:** **M1–M7 complete (2026-08-13).** `make check` green — ruff, ruff
+  format, mypy strict over **204 files**, **395 tests**, **98.25% coverage**
+  (gate at 97%). Pyramid: unit 223 / integration 74 / e2e 100.
+  See [docs/milestones/M7-generation.md](docs/milestones/M7-generation.md).
 - **Mode: autonomous through M12.** The user said, verbatim: *"let us do that
   and just finsh m6-m12 without mentor mode"*. That was given after I argued
   M6–M12 is the actual learning core and should stay in mentor mode; they
   reaffirmed, so it stands. **Mentor mode resumes at M13** unless they say
   otherwise.
-- **Next: M7 (generation — `/ask`, streaming, citations).** Build it
-  autonomously; do not ask first.
+- **Next: M8 (RAG evaluation — golden set, recall@k, LLM-as-judge).** Build it
+  autonomously; do not ask first. It is the milestone that replaces every
+  "starting point, not a finding" note in M6/M7 with a measurement.
+- **No API keys exist in this environment** (`OPENAI_API_KEY`,
+  `ANTHROPIC_API_KEY` both unset). Every milestone from M6 ships with a
+  deterministic offline provider behind a protocol, and `Settings` refuses each
+  one in production. Keep doing that, and keep saying plainly in each milestone
+  note what is verified (plumbing) and what is not (model quality).
 - **The deferred quiz and exercise are still unanswered** — see "Still pending"
   below. Carried across four sessions now. They are *not* a blocker for
   autonomous work; offer them when the user next engages directly.
@@ -116,6 +122,7 @@ past M4 without asking.
 
 | Date | What happened |
 |---|---|
+| 2026-08-13 | **M7 implemented and shipped** (autonomous): a new top-level `app/llm/` package (`LLMProvider` protocol + `AnthropicLLM` + an extractive `OfflineLLM`), the prompt loader with templates as *files*, token-budgeted context assembly that builds the citation map in the same loop, and `POST /ask` plus `POST /ask/stream` (SSE). **The load-bearing decision: no context, no call** — with nothing usable retrieved, `Generator` refuses locally and never contacts the model, because a model handed an empty context invents a fluent, confident, uncited answer and returns 200. The test asserts this with a provider that raises if invoked. Three bugs: the offline model answered by *repeating the question* (the block regex swallowed the trailing `Question:` line, which then perfectly matched itself); quoted answers began with the filename (a title has no sentence-ending punctuation); and — found at runtime with curl, invisible to every test — **a refusal came back with three citations attached**, because a vector search always returns `top_k` neighbours however far away, so "nothing relevant" is not a state pgvector can report. Fixed with `MIN_EVIDENCE_SCORE` (zero-similarity chunks are not evidence; *not* the tuned floor M8 owns). 395 tests, 98.25%. Wrote [ADR-0010](docs/adr/0010-answers-are-grounded-refusals-are-local.md) and [docs/milestones/M7-generation.md](docs/milestones/M7-generation.md). Also added `docs/CONTINUE.md`, `scripts/continue-agentflow.sh` and a launchd plist for unattended runs (commit `9125b43`) — **not installed; the user must `launchctl load` it.** |
 | 2026-08-13 | **M6 implemented and shipped** (autonomous, per the M6–M12 instruction): `document_chunks` with a `vector(1536)` column and an HNSW index, paragraph-aware token-bounded chunking, an `EmbeddingProvider` seam with a *real* offline implementation, org-scoped cosine search, and `POST /search` returning chunks with citations. **The load-bearing pgvector fact: HNSW filters *after* the vector scan**, so a tenancy filter can silently return fewer than `top_k` rows — `SET LOCAL hnsw.iterative_scan = 'strict_order'` fixes it. Six bugs found by tests, not review: autogenerate emitted the migration with no `CREATE EXTENSION` and **no HNSW index**; `alembic check` then wanted to *drop* that index because it was absent from `Base.metadata`; the `"\n\n"` separator was uncounted against the chunk budget; **token counts are not additive under concatenation** (BPE merges across a join, so a `chunk_size=8` test produced a 9-token chunk); the offline embedder crashed on two words that hash to one coordinate with opposite signs (`math.log(0)`), found by the new e2e test after every shorter text had missed it; and `EmbeddingProvider` lacked `@runtime_checkable`. Separately, **`uv lock` silently upgraded mypy 1.x → 2.3.0** (pyproject asks only for `>=1.13`), surfacing six pre-existing type errors in `tests/unit/test_models.py` — fixed rather than pinned back. 316 tests, 98.01%. Wrote [ADR-0009](docs/adr/0009-embeddings-behind-a-protocol-with-a-real-offline-implementation.md), [docs/milestones/M6-rag-pipeline.md](docs/milestones/M6-rag-pipeline.md), and `backend/tests/worker_harness.py`. Verified with a real uvicorn + arq worker + curl, including ranking *between* chunks and a rehearsed migration rollback. |
 | 2026-08-12 | **M5 implemented and shipped** (autonomous, at the user's request): `documents` + `tasks` tables, `app/storage/` (an `ObjectStorage` protocol + filesystem backend, tenant-first keys), pypdf/text extraction, tenant-scoped `DocumentRepository`, `DocumentService` (allowlisted MIME types, size cap enforced *while reading*, orphaned-object cleanup), the arq producer/worker pair, and four endpoints on the 202-then-poll pattern. **The load-bearing decision: nothing is enqueued until its transaction commits.** The first attempt used `BackgroundTasks` on the belief that dependency teardown precedes background tasks — on FastAPI 0.141 it does not, and the e2e ordering test recorded `['enqueue','commit']` on its first run, reproducing the race immediately. Four more real bugs found by tests, not review: `utf-8` before `utf-8-sig` (BOM survived as U+FEFF), cp1252 accepting binary as text, `mkdir` outside the `try` in the atomic write (raw `OSError` escaping instead of `StorageError`), and the Postgres enums outliving their tables in `downgrade()` again. Also corrected an over-claim inherited from M2: UUIDv7 order is *not* chronological within a single millisecond. 236 tests, 98.86%. Wrote [ADR-0007](docs/adr/0007-object-storage-behind-a-protocol.md), [ADR-0008](docs/adr/0008-work-is-enqueued-only-after-the-transaction-commits.md), [docs/milestones/M5-document-upload.md](docs/milestones/M5-document-upload.md). Verified at runtime with a real uvicorn + arq worker + curl, not only in tests. |
 | 2026-07-10 | Full scaffold created: folder tree, configs (pyproject, compose, Makefile, CI, pre-commit, Dockerfile, .env.example), all design docs. Quiz issued, unanswered. Repo not yet under git. |

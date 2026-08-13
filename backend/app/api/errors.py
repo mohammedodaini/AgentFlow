@@ -31,6 +31,7 @@ from app.core.exceptions import (
     PayloadTooLargeError,
     UnsupportedMediaTypeError,
 )
+from app.llm.base import LLMError
 
 logger = structlog.get_logger(__name__)
 
@@ -48,6 +49,12 @@ _STATUS_BY_ERROR: list[tuple[type[AppError], HTTPStatus]] = [
     # actionable part of the answer.
     (PayloadTooLargeError, HTTPStatus.REQUEST_ENTITY_TOO_LARGE),
     (UnsupportedMediaTypeError, HTTPStatus.UNSUPPORTED_MEDIA_TYPE),
+    # M7. 502, not 500: the model provider failed, and the distinction is
+    # actionable. 500 tells a client its request was fine and nothing more;
+    # 502 says an upstream is down, so retrying may well work. It also keeps
+    # our bugs and Anthropic's outages apart in the metrics, which is the
+    # difference between a useful alert and a noisy one.
+    (LLMError, HTTPStatus.BAD_GATEWAY),
     # Deliberately absent: StorageError (app/storage/base.py). It falls through
     # to 500, which is the honest answer — the client did nothing wrong and
     # retrying the same request will not help.

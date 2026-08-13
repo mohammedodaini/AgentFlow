@@ -66,43 +66,46 @@ half-milestone and call it shipped.
 ## Where the project is
 
 `CLAUDE.md` is authoritative — read it, not this paragraph, for the current
-position. As of the last update: **M1–M6 shipped**, next is **M7**.
+position. As of the last update: **M1–M7 shipped**, next is **M8**.
 
 The working mode is **autonomous through M12**, at the user's explicit
 instruction: *"let us do that and just finsh m6-m12 without mentor mode"*.
 Mentor mode resumes at M13.
 
-## M7 — generation (`/ask`)
+## M8 — RAG evaluation
 
 `docs/roadmap.md` is the specification. In outline:
 
-- A Claude client behind a seam, exactly as `EmbeddingProvider` (ADR-0009) and
-  `ObjectStorage` (ADR-0007) are. **There is no `ANTHROPIC_API_KEY` in this
-  environment**, so there must be a deterministic offline implementation that
-  the whole test suite runs against, and `Settings` must refuse it in
-  production — the same shape as `EMBEDDING_PROVIDER`.
-- `POST /ask`: retrieve (M6 already does this), assemble a context window
-  within a token budget, generate, return the answer **with the citations the
-  chunks carry**. An answer without traceable sources is an assertion, not
-  evidence.
-- Streaming (SSE) is in the roadmap. If it proves large, ship non-streaming
-  first and say so in the milestone note — a working `/ask` beats a
-  half-finished streaming one.
-- Record the prompt in `app/prompts/`, not inline in a service.
+- A golden set: questions, the chunk(s) that should be retrieved, and a
+  reference answer. Small and hand-written beats large and generated — twenty
+  questions someone actually cares about will find more than two hundred
+  paraphrases of each other.
+- Retrieval metrics first (recall@k, MRR), because they are cheap,
+  deterministic, and they bound everything downstream.
+- Answer scoring second, LLM-as-judge. **This is the part that needs a key**,
+  so build it behind the same seam and give it a deterministic offline judge
+  for the tests.
+- Then, and only then, tune what M6 and M7 left as guesses: `chunk_size_tokens`
+  (400), `chunk_overlap_tokens` (60), `retrieval_top_k` (5),
+  `context_token_budget` (8000), and `DEFAULT_MIN_SCORE` (0.0, no floor). Each
+  of those is documented as "a starting point, not a finding" — replace those
+  sentences with numbers and the measurement that produced them.
+- `app/evaluation/` already exists as stubs. It is currently in the coverage
+  omit list in `pyproject.toml`; remove its entry as you implement, or
+  `tests/unit/test_stub_manifest.py` will fail — which is what it is for.
 
-**What you can and cannot verify without a key:** the plumbing, the token
-budgeting, the citation assembly, the refusal paths — all testable. Whether
-Claude writes a good answer — not testable. Say so plainly in the milestone
-note rather than implying more.
+**What you can and cannot verify without a key:** the harness, the metrics
+arithmetic, the golden-set loading, the report — all testable offline against
+the hashing embedder. Whether the *numbers* mean anything about a real
+embedding model — not testable. Say so plainly.
 
-## M8–M12, in order
+## M9–M12, in order
 
 None of these need an API key to build, and all of them need one to *evaluate*.
 Same honesty rule: verify the plumbing, state the limit.
 
 | Milestone | What it is | The key risk |
 |---|---|---|
-| M8 | Evaluation: golden set, retrieval + answer metrics | Tuning chunk geometry by eye instead of by measurement. This milestone exists to stop that |
 | M9 | The single agent: LangGraph, tools, `search_chunks` | Building multi-agent before single-agent works. Refuse |
 | M10 | Memory: conversation + long-term, `app/memory/` | Unbounded context growth; summarisation must be tested |
 | M11 | Human approval: a DB record **and** a LangGraph interrupt | An approval that is only an interrupt does not survive a restart |

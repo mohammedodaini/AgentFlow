@@ -24,6 +24,7 @@ from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.db.redis import create_redis_client
 from app.db.session import create_engine, create_session_factory
+from app.llm import create_llm
 from app.logging.config import configure_logging
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.timing import TimingMiddleware
@@ -71,6 +72,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # HTTP client and its connection pool — constructing one per search would
     # open and tear down a TLS connection on every query.
     app.state.embedder = create_embedder(settings)
+
+    # M7: the generation model, built once for the same reason as the embedder.
+    # `AsyncAnthropic` owns a connection pool, and a pool per question would
+    # spend a TLS handshake on every answer.
+    app.state.llm = create_llm(settings)
 
     # Note: apart from the queue, nothing connects yet. The other clients pool
     # lazily, so a dependency that is down does not stop the process from
