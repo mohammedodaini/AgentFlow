@@ -33,12 +33,27 @@ def test_environment_variables_override_defaults(monkeypatch: pytest.MonkeyPatch
     assert settings.log_level == "DEBUG"
 
 
+def enter_production(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Set `APP_ENV=production` and satisfy every guard that comes with it.
+
+    The list grows with the milestones — a real signing key at M3, a real
+    embedding provider at M6 — and each addition breaks every older test that
+    merely set `APP_ENV`. Collecting them here means the next guard is one edit
+    rather than a hunt through the suite for tests that claim to be production
+    and are no longer allowed to be.
+
+    Tests *about* a specific guard do not use this; they set the one variable
+    they are asserting on, so the failure they trigger is unambiguous.
+    """
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("SECRET_KEY", "f" * 64)
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
+
+
 def test_app_env_maps_to_env_field(monkeypatch: pytest.MonkeyPatch) -> None:
     """`APP_ENV` is the documented variable name; `settings.env` is the field."""
-    monkeypatch.setenv("APP_ENV", "production")
-    # M3: production refuses to start on the placeholder signing key, so any
-    # test claiming to be production has to supply a real one.
-    monkeypatch.setenv("SECRET_KEY", "f" * 64)
+    enter_production(monkeypatch)
 
     assert Settings().env == "production"
 
@@ -56,8 +71,7 @@ def test_is_development_tracks_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_ENV", "development")
     assert Settings().is_development is True
 
-    monkeypatch.setenv("APP_ENV", "production")
-    monkeypatch.setenv("SECRET_KEY", "f" * 64)  # see the note in the test above
+    enter_production(monkeypatch)
     assert Settings().is_development is False
 
 

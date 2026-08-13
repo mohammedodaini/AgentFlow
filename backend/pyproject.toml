@@ -28,6 +28,9 @@ dependencies = [
     "pgvector>=0.3",
     # --- Document parsing (M5) ---
     "pypdf>=5.1",                    # pure-python PDF text extraction
+    # --- Retrieval (M6) ---
+    "tiktoken>=0.8",                 # token counting, so chunk budgets are real
+    "openai>=1.57",                  # embeddings only; Claude is the generation model
     # --- Auth ---
     "pyjwt>=2.10",
     "argon2-cffi>=23.1",
@@ -151,11 +154,7 @@ omit = [
     "app/integrations/**/*.py",
     "app/memory/**/*.py",
     "app/prompts/**/*.py",
-    "app/rag/chunking.py",
-    "app/rag/embeddings.py",
-    "app/rag/retrieval.py",
     "app/repositories/agent_run_repository.py",
-    "app/repositories/chunk_repository.py",
     "app/repositories/memory_repository.py",
     "app/workers/tasks/agent_execution.py",
     "app/workers/tasks/email_sync.py",
@@ -164,14 +163,12 @@ omit = [
     "app/api/v1/routes/approvals.py",
     "app/api/v1/routes/conversations.py",
     "app/api/v1/routes/integrations.py",
-    "app/api/v1/routes/retrieval.py",
     "app/middleware/rate_limit.py",
     "app/monitoring/metrics.py",
     "app/models/agent_run.py",
     "app/models/agent_step.py",
     "app/models/approval.py",
     "app/models/conversation.py",
-    "app/models/document_chunk.py",
     "app/models/event.py",
     "app/models/integration.py",
     "app/models/memory.py",

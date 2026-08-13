@@ -8,11 +8,12 @@ when the client polls.
 Two properties this function must have, and how each is achieved
 ----------------------------------------------------------------
 **Idempotent.** arq retries, and a sweeper may re-enqueue. Running twice must
-not produce two of anything. Here that is nearly free — extraction has no side
-effects and the writes are assignments rather than appends — and a document
-already `ready` returns early instead of redoing the work. From M6, when chunks
-are inserted, this is the function that will need `DELETE FROM document_chunks
-WHERE document_id = ?` before writing, and this docstring is the reminder.
+not produce two of anything. A document already `ready` returns early instead
+of redoing the work, and — since M6, when this task began inserting chunks —
+indexing *replaces* a document's chunks rather than appending to them. That
+second guarantee is the one that matters now: appending on a retry would double
+every chunk, and duplicates do not announce themselves, they just quietly take
+two of the top five slots in every search that matches them.
 
 **Honest about which failures are worth retrying.** A corrupt PDF fails
 identically on all three attempts; retrying it wastes a worker slot and delays
@@ -31,10 +32,15 @@ from typing import Any
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.config import Settings
 from app.core.exceptions import DocumentIngestionError
 from app.models.document import Document, DocumentStatus
+from app.models.document_chunk import EMBEDDING_DIMENSIONS, DocumentChunk
 from app.models.task import Task, TaskStatus
+from app.rag.chunking import chunk_text
+from app.rag.embeddings import EmbeddingProvider
 from app.rag.ingestion import extract_text
+from app.repositories.chunk_repository import ChunkRepository
 from app.repositories.document_repository import DocumentRepository
 from app.storage import ObjectStorage, StorageError
 
@@ -106,9 +112,24 @@ async def ingest_document(
             await _fail_if_last_attempt(ctx, session, documents, document, task)
             raise
 
+        try:
+            chunk_count = await _index(session, ctx, document, text)
+        except (DocumentIngestionError, StorageError) as error:
+            await documents.set_status(document, DocumentStatus.FAILED, error=error.message)
+            log.warning("ingestion.indexing_failed", reason=error.code, error=error.message)
+            return await _finish(session, task, TaskStatus.FAILED, {"error": error.message})
+        except Exception:
+            await _fail_if_last_attempt(ctx, session, documents, document, task)
+            raise
+
         await documents.set_status(document, DocumentStatus.READY, error=None)
-        log.info("ingestion.succeeded", characters=len(text))
-        return await _finish(session, task, TaskStatus.SUCCEEDED, {"characters": len(text)})
+        log.info("ingestion.succeeded", characters=len(text), chunks=chunk_count)
+        return await _finish(
+            session,
+            task,
+            TaskStatus.SUCCEEDED,
+            {"characters": len(text), "chunks": chunk_count},
+        )
 
 
 async def _extract(storage: ObjectStorage, document: Document) -> str:
@@ -121,6 +142,71 @@ async def _extract(storage: ObjectStorage, document: Document) -> str:
     """
     data = await storage.get(document.storage_uri)
     return await asyncio.to_thread(extract_text, data, document.mime_type)
+
+
+async def _index(session: AsyncSession, ctx: dict[str, Any], document: Document, text: str) -> int:
+    """Chunk the text, embed the chunks, and replace this document's index (M6).
+
+    Three things here are worth more than they look.
+
+    **Chunking runs off the event loop.** `chunk_text` is CPU-bound — tiktoken
+    encodes the whole document, twice — and a worker runs many jobs on one
+    loop. Inline, a large document would stall every other job in the process.
+
+    **Chunks are replaced, not appended.** The task can be delivered twice, and
+    appending would double every chunk. Duplicates do not announce themselves;
+    they quietly occupy two of the top five slots in every search that matches
+    them. This is the promise M5's docstring made and could not yet keep.
+
+    **The vector width is checked before the insert.** A provider returning
+    3072 dimensions into a `vector(1536)` column fails inside Postgres with a
+    message about the column, several layers below the misconfiguration that
+    caused it. Checking here names the real problem.
+    """
+    settings: Settings = ctx["settings"]
+    embedder: EmbeddingProvider = ctx["embedder"]
+
+    chunks = await asyncio.to_thread(
+        chunk_text,
+        text,
+        chunk_size=settings.chunk_size_tokens,
+        overlap=settings.chunk_overlap_tokens,
+    )
+
+    if not chunks:
+        # Extraction already refuses empty documents, so reaching this means
+        # text survived that check and still produced nothing to index.
+        message = "The document produced no indexable text."
+        raise DocumentIngestionError(message)
+
+    vectors = await embedder.embed_documents([chunk.content for chunk in chunks])
+
+    if len(vectors) != len(chunks):
+        message = f"Embedding provider returned {len(vectors)} vectors for {len(chunks)} chunks."
+        raise DocumentIngestionError(message)
+
+    if vectors and len(vectors[0]) != EMBEDDING_DIMENSIONS:
+        message = (
+            f"Embedding provider returned {len(vectors[0])} dimensions, but "
+            f"document_chunks.embedding is vector({EMBEDDING_DIMENSIONS}). "
+            "Check EMBEDDING_MODEL and EMBEDDING_DIMENSIONS."
+        )
+        raise DocumentIngestionError(message)
+
+    return await ChunkRepository(session).replace_for_document(
+        document.id,
+        [
+            DocumentChunk(
+                document_id=document.id,
+                chunk_index=chunk.index,
+                content=chunk.content,
+                token_count=chunk.token_count,
+                embedding=vector,
+                chunk_metadata={"mime_type": document.mime_type},
+            )
+            for chunk, vector in zip(chunks, vectors, strict=True)
+        ],
+    )
 
 
 async def _start_task(session: AsyncSession, task_id: uuid.UUID) -> Task | None:

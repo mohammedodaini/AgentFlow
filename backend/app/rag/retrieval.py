@@ -1,18 +1,87 @@
-# mypy: ignore-errors
-# ^ remove this pragma when the module below is implemented
-# ruff: noqa: F401  — remove once this module is implemented (M6)
 """Query → ranked chunks with citations. The heart of RAG.
 
-embed query → ChunkRepository.similarity_search (org-scoped!) → optional
-rerank. Consumed by /search, /ask, and the RAG agent's search_chunks tool.
+Layer: rag. Deliberately thin: embed the query, ask the repository for
+neighbours, apply a relevance floor. The complexity lives in
+`ChunkRepository.similarity_search`, where the SQL is, and this class exists so
+`/search`, `/ask` (M7) and the RAG agent's `search_chunks` tool (M9) each make
+one call rather than keeping three copies of the same three steps.
+
+What is deliberately *not* here yet: reranking. A cross-encoder pass over the
+top 50 candidates is the standard next improvement and often a large one — and
+adding it now would be spending latency and money on the strength of a blog
+post. M8 builds the golden set that can say whether it helps *this* corpus. The
+roadmap is explicit about the order: measure, then optimise.
 """
 
 from __future__ import annotations
 
 import uuid
 
-from app.rag.embeddings import embed_query
-from app.repositories.chunk_repository import ChunkRepository
+import structlog
+from sqlalchemy.ext.asyncio import AsyncSession
 
-# TODO(M6): class Retriever — retrieve(org_id, query, top_k) -> list[ScoredChunk]
-# TODO(M8): reranking pass IF evals prove it helps (measure first)
+from app.rag.embeddings import EmbeddingProvider
+from app.repositories.chunk_repository import ChunkRepository, ScoredChunk
+
+logger = structlog.get_logger(__name__)
+
+DEFAULT_MIN_SCORE = 0.0
+"""No relevance floor by default.
+
+Tempting to set one — filtering out weak matches obviously improves a demo. It
+is left off because the right threshold depends on the embedding model, and
+picking one by eye means silently returning nothing for questions whose answer
+sits just under an arbitrary line. A user reading "no results" cannot tell that
+from "we found it and hid it". M8 sets this from measurements.
+"""
+
+
+class Retriever:
+    """Finds the chunks most likely to answer a question.
+
+    Takes the session and the embedder rather than building them: the session
+    belongs to the request, and the embedder is built once per process because
+    it owns an HTTP client. Constructing either here would open a connection
+    pool per search.
+    """
+
+    def __init__(self, session: AsyncSession, embedder: EmbeddingProvider) -> None:
+        self._chunks = ChunkRepository(session)
+        self._embedder = embedder
+
+    async def retrieve(
+        self,
+        organization_id: uuid.UUID,
+        query: str,
+        *,
+        top_k: int = 5,
+        min_score: float = DEFAULT_MIN_SCORE,
+    ) -> list[ScoredChunk]:
+        """Rank this organization's chunks against `query`.
+
+        The query is embedded with `embed_query`, not `embed_documents`. They
+        are the same call for both current providers and they are not the same
+        *contract* — asymmetric models expect different prefixes on questions
+        and passages, and using the wrong one degrades ranking without failing.
+
+        An empty or whitespace query returns nothing rather than embedding it.
+        A vector built from no words matches arbitrarily, so the alternative is
+        five confident, unrelated results for a query the user never made.
+        """
+        if not query.strip():
+            return []
+
+        embedding = await self._embedder.embed_query(query)
+        results = await self._chunks.similarity_search(organization_id, embedding, top_k=top_k)
+
+        if min_score > 0.0:
+            results = [result for result in results if result.score >= min_score]
+
+        logger.info(
+            "retrieval.retrieved",
+            organization_id=str(organization_id),
+            characters=len(query),
+            returned=len(results),
+            top_score=results[0].score if results else None,
+        )
+        return results

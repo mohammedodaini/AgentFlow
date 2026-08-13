@@ -12,9 +12,28 @@ duplicate accounts and duplicate memberships.
 
 from __future__ import annotations
 
-from sqlalchemy import ForeignKeyConstraint, UniqueConstraint
+from typing import cast
+
+from sqlalchemy import ForeignKeyConstraint, Table, UniqueConstraint
 
 from app.models import Base, Membership, Organization, Role, User
+
+
+def table_of(model: type[Base]) -> Table:
+    """The model's `Table`, narrowed from the `FromClause` mypy sees.
+
+    `DeclarativeBase.__table__` is annotated `FromClause` because a mapper may
+    be attached to a join or a subquery. Every model here maps to a real table,
+    and `FromClause` does not carry `.indexes`, `.constraints`, or a
+    `PrimaryKeyConstraint`-typed `.primary_key` — so without this narrowing the
+    assertions below cannot be written at all.
+
+    The cast became necessary when mypy 2.3 arrived, pulled in by `uv lock`
+    while resolving the M6 dependencies because `pyproject.toml` asks only for
+    `mypy>=1.13`. It closes a gap the older release did not report, rather than
+    one this milestone introduced.
+    """
+    return cast("Table", model.__table__)
 
 
 def test_table_names_are_plural_snake_case() -> None:
@@ -48,11 +67,11 @@ def test_naming_convention_produces_readable_constraint_names() -> None:
     A generated diff saying `DROP CONSTRAINT organizations_slug_key` is noise;
     `uq_organizations_slug` says what it protects.
     """
-    assert Organization.__table__.primary_key.name == "pk_organizations"
-    assert {index.name for index in Organization.__table__.indexes} == {"ix_organizations_slug"}
+    assert table_of(Organization).primary_key.name == "pk_organizations"
+    assert {index.name for index in table_of(Organization).indexes} == {"ix_organizations_slug"}
     assert {
         constraint.name
-        for constraint in Membership.__table__.constraints
+        for constraint in table_of(Membership).constraints
         if isinstance(constraint, ForeignKeyConstraint)
     } == {"fk_memberships_user_id_users", "fk_memberships_organization_id_organizations"}
 
@@ -74,7 +93,7 @@ def test_membership_is_unique_per_user_and_organization() -> None:
     """
     unique = next(
         constraint
-        for constraint in Membership.__table__.constraints
+        for constraint in table_of(Membership).constraints
         if isinstance(constraint, UniqueConstraint)
     )
 
@@ -101,7 +120,7 @@ def test_membership_has_no_index_redundant_with_its_unique_constraint() -> None:
     buying nothing. `organization_id` is the trailing column, so it does need
     its own index — asserting both directions keeps the reasoning honest.
     """
-    index_names = {index.name for index in Membership.__table__.indexes}
+    index_names = {index.name for index in table_of(Membership).indexes}
 
     assert index_names == {"ix_memberships_organization_id"}
 
@@ -109,7 +128,14 @@ def test_membership_has_no_index_redundant_with_its_unique_constraint() -> None:
 def test_role_values_are_the_documented_three() -> None:
     """`owner | admin | member` per docs/database.md."""
     assert [role.value for role in Role] == ["owner", "admin", "member"]
-    assert Role.OWNER == "owner"  # StrEnum compares equal to its wire value
+
+    # A `Role` *is* a `str`, which is what lets it be serialised, compared and
+    # bound as a query parameter without conversion anywhere. Asserted through
+    # an annotated variable rather than `Role.OWNER == "owner"`: mypy 2.3 calls
+    # that comparison non-overlapping and refuses it, while this states the
+    # stronger property the code actually relies on.
+    serialized: str = Role.OWNER
+    assert serialized == "owner"
 
 
 def test_all_models_share_one_metadata() -> None:

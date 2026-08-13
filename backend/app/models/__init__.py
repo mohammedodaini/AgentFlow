@@ -13,20 +13,23 @@ from __future__ import annotations
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 from app.models.document import Document, DocumentSource, DocumentStatus
+from app.models.document_chunk import EMBEDDING_DIMENSIONS, DocumentChunk
 from app.models.membership import Membership, Role
 from app.models.organization import Organization
 from app.models.task import INGEST_DOCUMENT, Task, TaskStatus
 from app.models.user import User
 
-# TODO(M6): document_chunks      · TODO(M9): agent_runs, agent_steps
+# TODO(M9): agent_runs, agent_steps
 # TODO(M10): conversations, messages, memories
 # TODO(M11): integrations, oauth_tokens
 # TODO(M12): approvals           · TODO(M16): events
 
 __all__ = [
+    "EMBEDDING_DIMENSIONS",
     "INGEST_DOCUMENT",
     "Base",
     "Document",
+    "DocumentChunk",
     "DocumentSource",
     "DocumentStatus",
     "Membership",

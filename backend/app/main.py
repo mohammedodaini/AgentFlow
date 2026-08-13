@@ -27,6 +27,7 @@ from app.db.session import create_engine, create_session_factory
 from app.logging.config import configure_logging
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.timing import TimingMiddleware
+from app.rag.embeddings import create_embedder
 from app.storage import create_storage
 from app.workers.queue import create_queue
 
@@ -65,6 +66,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # deliberately not `app.state.redis` — that client decodes replies to str,
     # while arq's job payloads are bytes. See app/workers/queue.py.
     app.state.queue = await create_queue(settings)
+
+    # M6: the embedding provider. Built once per process because it owns an
+    # HTTP client and its connection pool — constructing one per search would
+    # open and tear down a TLS connection on every query.
+    app.state.embedder = create_embedder(settings)
 
     # Note: apart from the queue, nothing connects yet. The other clients pool
     # lazily, so a dependency that is down does not stop the process from

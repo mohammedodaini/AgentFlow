@@ -25,6 +25,7 @@ from arq.connections import RedisSettings
 from app.core.config import get_settings
 from app.db.session import create_engine, create_session_factory
 from app.logging.config import configure_logging
+from app.rag.embeddings import create_embedder
 from app.storage import create_storage
 from app.workers.queue import build_redis_settings
 from app.workers.tasks.ingestion import ingest_document
@@ -50,7 +51,18 @@ async def startup(ctx: dict[str, Any]) -> None:
     ctx["session_factory"] = create_session_factory(engine)
     ctx["storage"] = create_storage(_settings)
 
-    logger.info("worker.startup", env=_settings.env, storage=_settings.storage_backend)
+    # M6: the worker embeds; the API only queries. Its own instance, for the
+    # same reason it holds its own engine — this is a separate process and
+    # cannot reach `app.state`.
+    ctx["embedder"] = create_embedder(_settings)
+    ctx["settings"] = _settings
+
+    logger.info(
+        "worker.startup",
+        env=_settings.env,
+        storage=_settings.storage_backend,
+        embeddings=_settings.embedding_provider,
+    )
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:

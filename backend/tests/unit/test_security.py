@@ -24,6 +24,7 @@ from app.core.security import (
     needs_rehash,
     verify_password,
 )
+from tests.unit.test_config import enter_production
 
 PASSWORD = "correct horse battery staple"
 
@@ -230,8 +231,10 @@ def test_production_refuses_a_short_secret(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_production_accepts_a_real_secret(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("APP_ENV", "production")
-    monkeypatch.setenv("SECRET_KEY", "f" * 64)
+    """The only test here that builds a production `Settings` successfully, so
+    it is the only one that has to satisfy the *other* production guards too —
+    hence the shared helper rather than a second copy of the list."""
+    enter_production(monkeypatch)
 
     assert Settings().secret_key.get_secret_value() == "f" * 64
 

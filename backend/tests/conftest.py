@@ -42,6 +42,7 @@ from app.core.config import Settings, get_settings
 from app.db.deps import get_db
 from app.main import create_app
 from app.models import Base
+from app.rag.embeddings import EmbeddingProvider, create_embedder
 from app.storage import ObjectStorage, create_storage
 from app.workers.queue import get_queue
 
@@ -110,6 +111,11 @@ async def _create_schema(url: str) -> None:
     engine = create_async_engine(url, poolclass=NullPool)
     try:
         async with engine.begin() as connection:
+            # M6. `create_all` builds tables, not extensions, and a
+            # `vector(1536)` column cannot be created before the type exists.
+            # The migration does this too; the test schema is built from
+            # metadata rather than migrations (ADR-0006), so it needs its own.
+            await connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             await connection.run_sync(Base.metadata.create_all)
     finally:
         await engine.dispose()
@@ -172,6 +178,17 @@ def storage() -> ObjectStorage:
     while happily reporting success.
     """
     return create_storage(get_settings())
+
+
+@pytest.fixture
+def embedder() -> EmbeddingProvider:
+    """The offline embedder, built the way the application builds it.
+
+    Real rather than mocked, for the same reason `storage` is: it produces
+    genuine lexical similarity, so a retrieval test can assert that the *right*
+    chunk ranked first instead of merely that some rows came back.
+    """
+    return create_embedder(get_settings())
 
 
 class RecordingQueue:

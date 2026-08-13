@@ -46,19 +46,20 @@ past M4 without asking.
 
 ## Current position
 
-- **Phase:** **M1–M5 complete (2026-08-12).** `make check` green — ruff, ruff
-  format, mypy strict over **158 files**, **236 tests**, **98.9% coverage**
-  (gate at 97%). Pyramid: unit 128 / integration 41 / e2e 67.
-  See [docs/milestones/M5-document-upload.md](docs/milestones/M5-document-upload.md).
-- **M5 was built autonomously at the user's explicit request** ("continue with
-  m5 and finish it"), which overrode the mentor-mode resumption recorded here
-  after M4. **That override was for M5 only.**
-- **Next: M6 (RAG pipeline) — ASK FIRST.** Do not assume the M5 override
-  extends to it. Ask whether M6 should be mentor mode (the contract at the top
-  of this file) or another autonomous build.
+- **Phase:** **M1–M6 complete (2026-08-13).** `make check` green — ruff, ruff
+  format, mypy strict over **191 files**, **316 tests**, **98.0% coverage**
+  (gate at 97%). Pyramid: unit 176 / integration 62 / e2e 80.
+  See [docs/milestones/M6-rag-pipeline.md](docs/milestones/M6-rag-pipeline.md).
+- **Mode: autonomous through M12.** The user said, verbatim: *"let us do that
+  and just finsh m6-m12 without mentor mode"*. That was given after I argued
+  M6–M12 is the actual learning core and should stay in mentor mode; they
+  reaffirmed, so it stands. **Mentor mode resumes at M13** unless they say
+  otherwise.
+- **Next: M7 (generation — `/ask`, streaming, citations).** Build it
+  autonomously; do not ask first.
 - **The deferred quiz and exercise are still unanswered** — see "Still pending"
-  below. They have now been carried across three sessions. Re-ask them at the
-  start of the next one, before any M6 work.
+  below. Carried across four sessions now. They are *not* a blocker for
+  autonomous work; offer them when the user next engages directly.
 
 ### Environment facts learned this session
 - `uv` installed at `/opt/homebrew/bin/uv`; venv runs **Python 3.13.2**.
@@ -85,6 +86,10 @@ past M4 without asking.
   it. Integration tests **skip**, not fail, when Postgres is unreachable.
 - `uv run alembic check` is the fast "do the models and the database agree?"
   question — cheaper than generating a migration to find out.
+- **Dependency specifiers are unpinned upper-bound-free (`mypy>=1.13` etc.), so
+  any `uv lock` can bring a new major version of a *tool*.** M6 got mypy 2.3
+  this way. Re-run `make check` after adding any dependency, and read new
+  errors as "the tool got stricter", not "I broke something".
 - **From M5 the app needs two processes.** `make dev` alone leaves every upload
   stuck at `status=pending`; `make worker`
   (`arq app.workers.settings.WorkerSettings`) is what moves them. The Makefile
@@ -111,6 +116,7 @@ past M4 without asking.
 
 | Date | What happened |
 |---|---|
+| 2026-08-13 | **M6 implemented and shipped** (autonomous, per the M6–M12 instruction): `document_chunks` with a `vector(1536)` column and an HNSW index, paragraph-aware token-bounded chunking, an `EmbeddingProvider` seam with a *real* offline implementation, org-scoped cosine search, and `POST /search` returning chunks with citations. **The load-bearing pgvector fact: HNSW filters *after* the vector scan**, so a tenancy filter can silently return fewer than `top_k` rows — `SET LOCAL hnsw.iterative_scan = 'strict_order'` fixes it. Six bugs found by tests, not review: autogenerate emitted the migration with no `CREATE EXTENSION` and **no HNSW index**; `alembic check` then wanted to *drop* that index because it was absent from `Base.metadata`; the `"\n\n"` separator was uncounted against the chunk budget; **token counts are not additive under concatenation** (BPE merges across a join, so a `chunk_size=8` test produced a 9-token chunk); the offline embedder crashed on two words that hash to one coordinate with opposite signs (`math.log(0)`), found by the new e2e test after every shorter text had missed it; and `EmbeddingProvider` lacked `@runtime_checkable`. Separately, **`uv lock` silently upgraded mypy 1.x → 2.3.0** (pyproject asks only for `>=1.13`), surfacing six pre-existing type errors in `tests/unit/test_models.py` — fixed rather than pinned back. 316 tests, 98.01%. Wrote [ADR-0009](docs/adr/0009-embeddings-behind-a-protocol-with-a-real-offline-implementation.md), [docs/milestones/M6-rag-pipeline.md](docs/milestones/M6-rag-pipeline.md), and `backend/tests/worker_harness.py`. Verified with a real uvicorn + arq worker + curl, including ranking *between* chunks and a rehearsed migration rollback. |
 | 2026-08-12 | **M5 implemented and shipped** (autonomous, at the user's request): `documents` + `tasks` tables, `app/storage/` (an `ObjectStorage` protocol + filesystem backend, tenant-first keys), pypdf/text extraction, tenant-scoped `DocumentRepository`, `DocumentService` (allowlisted MIME types, size cap enforced *while reading*, orphaned-object cleanup), the arq producer/worker pair, and four endpoints on the 202-then-poll pattern. **The load-bearing decision: nothing is enqueued until its transaction commits.** The first attempt used `BackgroundTasks` on the belief that dependency teardown precedes background tasks — on FastAPI 0.141 it does not, and the e2e ordering test recorded `['enqueue','commit']` on its first run, reproducing the race immediately. Four more real bugs found by tests, not review: `utf-8` before `utf-8-sig` (BOM survived as U+FEFF), cp1252 accepting binary as text, `mkdir` outside the `try` in the atomic write (raw `OSError` escaping instead of `StorageError`), and the Postgres enums outliving their tables in `downgrade()` again. Also corrected an over-claim inherited from M2: UUIDv7 order is *not* chronological within a single millisecond. 236 tests, 98.86%. Wrote [ADR-0007](docs/adr/0007-object-storage-behind-a-protocol.md), [ADR-0008](docs/adr/0008-work-is-enqueued-only-after-the-transaction-commits.md), [docs/milestones/M5-document-upload.md](docs/milestones/M5-document-upload.md). Verified at runtime with a real uvicorn + arq worker + curl, not only in tests. |
 | 2026-07-10 | Full scaffold created: folder tree, configs (pyproject, compose, Makefile, CI, pre-commit, Dockerfile, .env.example), all design docs. Quiz issued, unanswered. Repo not yet under git. |
 | 2026-07-12 | User requested named stubs: all ~110 backend modules created with docstrings (purpose/layer/rules), real imports, and milestone-tagged TODOs (M1–M16). No implementations — bodies are TODO comments; each stub carries `# ruff: noqa: F401`, removed when implemented. Quiz still unanswered; repo still not under git. |

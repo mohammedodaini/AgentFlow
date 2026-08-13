@@ -148,6 +148,56 @@ class Settings(BaseSettings):
     """Five minutes. A job with no timeout does not fail — it *hangs*, holding
     a worker slot forever, and the queue behind it stops moving."""
 
+    # --- Retrieval (M6) ---
+    embedding_provider: Literal["openai", "hashing"] = "hashing"
+    """Which `EmbeddingProvider` to build.
+
+    Defaults to `hashing` so a fresh clone runs, and its whole test suite
+    passes, with no API key and no network. That is a development convenience
+    and nothing more: the hashing embedder captures *lexical* overlap, not
+    meaning, so it will never match a paraphrase. The validator below refuses
+    it in production, for the same reason the placeholder `SECRET_KEY` is
+    refused — a default that silently degrades the product is worse than one
+    that stops the process.
+    """
+
+    openai_api_key: SecretStr = SecretStr("")
+    """Embeddings only — Claude is the generation model, and Anthropic has no
+    embeddings endpoint. `SecretStr` so it cannot leak through a `repr()`."""
+
+    embedding_model: str = "text-embedding-3-small"
+    """OpenAI's current small model: 1536 dimensions, and cheap enough that
+    re-embedding a corpus is a decision rather than a budget event."""
+
+    embedding_dimensions: int = 1536
+    """Must equal `document_chunks.embedding`'s declared width.
+
+    A mismatch is not a graceful failure — Postgres rejects the insert, and it
+    does so in the ingestion worker, long after the upload was accepted. A unit
+    test asserts these agree so the failure happens at test time instead.
+    """
+
+    embedding_batch_size: int = 96
+    """Texts per embedding API call. One request per chunk would turn a
+    200-chunk document into 200 round trips; one request for all of them
+    eventually exceeds the provider's token limit for a batch."""
+
+    chunk_size_tokens: int = 400
+    chunk_overlap_tokens: int = 60
+    """Chunk geometry, in tokens rather than characters, because the limit that
+    actually binds downstream is the model's context window.
+
+    400/60 is a starting point, not a finding. M8 exists to replace these with
+    numbers measured against a golden set — `docs/roadmap.md` says "we will
+    tune size/overlap at M8 using eval metrics, not vibes", and until then
+    these are vibes.
+    """
+
+    retrieval_top_k: int = 5
+    """Default chunks returned by `/search` and fed to the model at M7. Small
+    on purpose: every extra chunk is context spent, and precision at the top of
+    the list matters far more than recall deep in it."""
+
     @property
     def is_development(self) -> bool:
         """True only in local development — drives human-readable log output."""
@@ -181,6 +231,29 @@ class Settings(BaseSettings):
                 f"{self.jwt_algorithm} (RFC 7518 §3.2); got {len(secret.encode())}. "
                 "Generate one with: openssl rand -hex 32"
             )
+            raise ValueError(message)
+
+        if self.embedding_provider == "hashing":
+            # M6. The hashing embedder is offline and deterministic, which makes
+            # it perfect for tests and useless for users: it matches shared
+            # words, never shared meaning, so "how do I claim expenses?" would
+            # miss a chunk titled "reimbursement policy".
+            #
+            # Nothing would *break*. Search would simply be quietly bad, which
+            # is the failure mode a startup check is worth having for.
+            message = (
+                "EMBEDDING_PROVIDER is 'hashing' in production. That embedder "
+                "matches words, not meaning, and exists for offline development. "
+                "Set EMBEDDING_PROVIDER=openai and provide OPENAI_API_KEY."
+            )
+            raise ValueError(message)
+
+        if self.embedding_provider == "openai" and not self.openai_api_key.get_secret_value():
+            # Caught here rather than on the first upload. Without this the
+            # process starts, accepts documents, and fails inside the worker —
+            # so the user sees `status=failed` on their file rather than an
+            # operator seeing a misconfigured deploy.
+            message = "EMBEDDING_PROVIDER is 'openai' but OPENAI_API_KEY is empty."
             raise ValueError(message)
 
         return self
