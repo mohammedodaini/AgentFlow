@@ -11,6 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.api.v1.routes import (
+    agent_runs,
     auth,
     documents,
     generation,
@@ -28,6 +29,6 @@ api_router.include_router(organizations.router)
 api_router.include_router(documents.router)
 api_router.include_router(retrieval.router)
 api_router.include_router(generation.router)
+api_router.include_router(agent_runs.router)
 
-# TODO(M9): agent_runs
 # TODO(M10): conversations · TODO(M11): integrations · TODO(M12): approvals

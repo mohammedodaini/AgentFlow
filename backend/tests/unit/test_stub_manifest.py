@@ -149,4 +149,8 @@ def test_the_manifest_still_describes_a_mostly_unbuilt_project() -> None:
     assert len(stubs) >= MINIMUM_EXPECTED_STUBS
     assert "app/main.py" in implemented
     assert "app/services/organization_service.py" in implemented
-    assert "app/agents/rag/graph.py" in stubs
+    # A *still*-unbuilt module, deliberately re-chosen at M9: this used to name
+    # `app/agents/rag/graph.py`, which M9 implemented, and the assertion firing
+    # is what caught it. Whatever module is named here has to be one nobody is
+    # about to build — the supervisor is M15, the furthest away.
+    assert "app/agents/supervisor/graph.py" in stubs

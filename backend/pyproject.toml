@@ -149,22 +149,29 @@ concurrency = ["greenlet", "thread"]
 # the gate — the precise failure test_stub_manifest.py exists to catch. A
 # package-wide omit is only ever safe while the package is entirely empty.
 omit = [
-    "app/agents/**/*.py",
+    # M9 note: `app/agents/**` was a blanket glob and could not stay one — the
+    # package now holds implemented modules (state.py, rag/) beside seven
+    # still-stubbed agents, and a directory glob would have hidden the
+    # implemented ones from the gate. The same correction M5 made for `rag/`.
+    "app/agents/calendar/*.py",
+    "app/agents/email/*.py",
+    "app/agents/evaluation/*.py",
+    "app/agents/memory/*.py",
+    "app/agents/planner/*.py",
+    "app/agents/proposal/*.py",
+    "app/agents/research/*.py",
+    "app/agents/supervisor/*.py",
     "app/integrations/**/*.py",
     "app/memory/**/*.py",
-    "app/repositories/agent_run_repository.py",
     "app/repositories/memory_repository.py",
     "app/workers/tasks/agent_execution.py",
     "app/workers/tasks/email_sync.py",
     "app/workers/tasks/memory_extraction.py",
-    "app/api/v1/routes/agent_runs.py",
     "app/api/v1/routes/approvals.py",
     "app/api/v1/routes/conversations.py",
     "app/api/v1/routes/integrations.py",
     "app/middleware/rate_limit.py",
     "app/monitoring/metrics.py",
-    "app/models/agent_run.py",
-    "app/models/agent_step.py",
     "app/models/approval.py",
     "app/models/conversation.py",
     "app/models/event.py",
@@ -172,12 +179,10 @@ omit = [
     "app/models/memory.py",
     "app/models/message.py",
     "app/models/oauth_token.py",
-    "app/schemas/agent_run.py",
     "app/schemas/approval.py",
     "app/schemas/conversation.py",
     "app/schemas/integration.py",
     "app/schemas/memory.py",
-    "app/services/agent_service.py",
     "app/services/approval_service.py",
     "app/services/conversation_service.py",
     "app/services/integration_service.py",

@@ -66,49 +66,58 @@ half-milestone and call it shipped.
 ## Where the project is
 
 `CLAUDE.md` is authoritative — read it, not this paragraph, for the current
-position. As of the last update: **M1–M8 shipped**, next is **M9**.
+position. As of the last update: **M1–M9 shipped**, next is **M10**.
 
 The working mode is **autonomous through M12**, at the user's explicit
 instruction: *"let us do that and just finsh m6-m12 without mentor mode"*.
 Mentor mode resumes at M13.
 
-## M9 — the first agent (LangGraph)
+## M10 — conversations and memory
 
 `docs/roadmap.md` and `docs/agents.md` are the specification. In outline:
 
-- **One** agent — the RAG agent — with tools, not a supervisor and specialists.
-  `docs/agents.md` describes the eventual multi-agent system; M15 builds it, and
-  only where the single agent measurably falls short. Refuse to jump ahead.
-- `agent_runs` and `agent_steps` tables: every step traced, so a wrong answer
-  can be replayed rather than guessed at. This is the milestone where "why did
-  it do that?" stops being answerable and starts needing data.
-- `search_chunks` as the first tool, wrapping the M6 retriever. The agent should
-  use the *same* code path `/search` and `/ask` use — a second retrieval
-  implementation is how the eval stops measuring the product.
-- Checkpointing, because M12's human-in-the-loop needs a graph that can be
-  interrupted and resumed.
-- `langgraph` and `langchain-core` are already in `pyproject.toml`.
+- `conversations` and `messages` tables. **`agent_runs.conversation_id` was
+  deliberately left out at M9** because `conversations` did not exist — adding
+  that column and its FK is part of this milestone, not an afterthought.
+- Multi-turn: the agent should answer a follow-up that only makes sense given
+  the previous turn. `AgentState.messages` already carries the `add_messages`
+  reducer, so history is an addition rather than a rewrite of every node.
+- Long-term memory in `app/memory/`: extraction, recall, and a decay or
+  summarisation policy. Distinct from `rag/` — that is what the *business*
+  uploaded, this is what the *agent* learned.
+- **Memory extraction runs after the response is sent** (`docs/agents.md` rule
+  5). It must never add latency to a user's turn, which means an arq task, and
+  ADR-0008 applies: enqueue only after the transaction commits.
 
-**Before you finish: `make eval` must still pass.** The agent is a new path to
-the same answers, and ADR-0011 exists precisely so that a change like this
-cannot silently make retrieval worse. If the agent path should be evaluated
-separately, add a dataset rather than weakening the gate.
+**The failure to design against is unbounded context.** Every turn appended to
+every prompt grows cost linearly and answer quality does not follow. Whatever
+summarisation or windowing you choose, test that a long conversation stays
+inside a token budget — `context_token_budget` already exists and this is a
+second consumer of it.
 
-**What you can and cannot verify without a key:** the graph, the state
-transitions, the tracing, the tool wiring, the interrupts — all testable with
-the offline provider. Whether the agent *chooses* tools sensibly — not testable,
-because the offline provider does not choose anything. Say so plainly.
+**Before you finish: `make eval` must still pass.**
 
-## M10–M12, in order
+**What you can and cannot verify without a key:** the tables, the history
+threading, the token budget, the extraction task and its scheduling — all
+testable offline. Whether the *summaries* are any good — not testable, because
+the offline provider quotes rather than summarises. Say so plainly.
 
-None of these need an API key to build, and all of them need one to *evaluate*.
-Same honesty rule: verify the plumbing, state the limit.
+## M11 and M12, after that
+
+Checked against `docs/roadmap.md` — an earlier version of this table had M11 and
+M12 the wrong way round and listed an "observability" milestone the roadmap does
+not contain. Read the roadmap, not a remembered summary of it.
 
 | Milestone | What it is | The key risk |
 |---|---|---|
-| M10 | Memory: conversation + long-term, `app/memory/` | Unbounded context growth; summarisation must be tested |
-| M11 | Human approval: a DB record **and** a LangGraph interrupt | An approval that is only an interrupt does not survive a restart |
-| M12 | Observability: traces, token/cost accounting per run | Metrics nobody reads. Instrument what a bill or an incident needs |
+| M11 | First OAuth integration (Google): connect flow, encrypted token storage, Calendar read | Storing a refresh token in plaintext. It is a credential to somebody else's account |
+| M12 | Human-in-the-loop: approval records, LangGraph interrupts, Calendar write and email draft behind approval | An approval that is only an in-memory interrupt does not survive a restart. It must be a **row** as well |
+
+Neither needs an API key to build; both need one to evaluate. Same honesty rule
+throughout: verify the plumbing, state the limit.
+
+M12 is also where `agent_runs.checkpoint` and `RunStatus.PAUSED_FOR_APPROVAL`
+finally get used — both exist already, unwritten, from M9.
 
 ## House style — non-negotiable, and the reason this codebase reads as it does
 
