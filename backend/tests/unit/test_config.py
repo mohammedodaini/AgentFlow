@@ -7,6 +7,7 @@ deploy. These tests pin the contract documented in `.env.example`.
 from __future__ import annotations
 
 import pytest
+from cryptography.fernet import Fernet
 from pydantic import ValidationError
 
 from app.core.config import Settings, get_settings
@@ -37,14 +38,14 @@ def enter_production(monkeypatch: pytest.MonkeyPatch) -> None:
     """Set `APP_ENV=production` and satisfy every guard that comes with it.
 
     The list grows with the milestones — a real signing key at M3, a real
-    embedding provider at M6, a real model at M7 — and each addition breaks
-    every older test that merely set `APP_ENV`. Collecting them here means the
-    next guard is one edit rather than a hunt through the suite for tests that
-    claim to be production and are no longer allowed to be. It has already paid
-    for itself twice.
+    embedding provider at M6, a real model at M7, a real OAuth provider and
+    encryption key at M11 — and each addition breaks every older test that merely
+    set `APP_ENV`. Collecting them here means the next guard is one edit rather
+    than a hunt through the suite for tests that claim to be production and are no
+    longer allowed to be. It has now paid for itself three times.
 
-    Tests *about* a specific guard do not use this; they set the one variable
-    they are asserting on, so the failure they trigger is unambiguous.
+    Tests *about* a specific guard do not use this; they set the one variable they
+    are asserting on, so the failure they trigger is unambiguous.
     """
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("SECRET_KEY", "f" * 64)
@@ -52,6 +53,11 @@ def enter_production(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
     monkeypatch.setenv("LLM_PROVIDER", "anthropic")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-not-a-real-key")
+    monkeypatch.setenv("OAUTH_PROVIDER", "google")
+    # A generated key, distinct from both the published placeholder and
+    # SECRET_KEY — production refuses all three of "placeholder", "missing" and
+    # "same as the signing key", and this helper has to clear every one.
+    monkeypatch.setenv("TOKEN_ENCRYPTION_KEY", Fernet.generate_key().decode())
 
 
 def test_app_env_maps_to_env_field(monkeypatch: pytest.MonkeyPatch) -> None:

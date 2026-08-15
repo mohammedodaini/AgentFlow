@@ -27,6 +27,7 @@ from app.core.exceptions import (
     DuplicateEmailError,
     NotFoundError,
 )
+from app.integrations.base import OAuthError, OAuthRevokedError
 from app.models import Membership, Role
 
 
@@ -38,10 +39,37 @@ from app.models import Membership, Role
         (NotFoundError("x"), HTTPStatus.NOT_FOUND),
         (ConflictError("x"), HTTPStatus.CONFLICT),
         (DuplicateEmailError("x"), HTTPStatus.CONFLICT),
+        # M11, added after a runtime check found a provider outage answering 500.
+        (OAuthError("x"), HTTPStatus.BAD_GATEWAY),
     ],
 )
 def test_each_domain_error_maps_to_its_status(error: AppError, expected: HTTPStatus) -> None:
     assert _status_for(error) == expected
+
+
+def test_an_upstream_failure_is_not_reported_as_our_bug() -> None:
+    """502, not 500, and the difference is the only actionable part of the answer.
+
+    500 tells a client its request was fine and nothing more. 502 says an upstream
+    is down, so retrying may well work — and it keeps our bugs and Google's
+    outages apart in the metrics, which is the difference between a useful alert
+    and a noisy one.
+    """
+    assert _status_for(OAuthError("Google is unreachable")) == HTTPStatus.BAD_GATEWAY
+
+
+def test_a_revoked_credential_is_translated_before_it_reaches_the_mapping() -> None:
+    """`OAuthRevokedError` *is* an `OAuthError`, so the table alone would answer
+    502 — inviting a retry that can never succeed.
+
+    `IntegrationService` catches it first and raises `NotFoundError` carrying
+    "reconnect it", because a revoked credential is not an upstream failure: it is
+    something the user did, and the only useful response is the action they can
+    take. This records that the subclassing is deliberate, and that the service —
+    not the table — is what makes it right.
+    """
+    assert issubclass(OAuthRevokedError, OAuthError)
+    assert _status_for(OAuthRevokedError("revoked")) == HTTPStatus.BAD_GATEWAY
 
 
 def test_a_subclass_resolves_through_its_base() -> None:

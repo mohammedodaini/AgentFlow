@@ -31,6 +31,7 @@ from app.core.exceptions import (
     PayloadTooLargeError,
     UnsupportedMediaTypeError,
 )
+from app.integrations.base import OAuthError
 from app.llm.base import LLMError
 
 logger = structlog.get_logger(__name__)
@@ -55,6 +56,17 @@ _STATUS_BY_ERROR: list[tuple[type[AppError], HTTPStatus]] = [
     # our bugs and Anthropic's outages apart in the metrics, which is the
     # difference between a useful alert and a noisy one.
     (LLMError, HTTPStatus.BAD_GATEWAY),
+    # M11, and found at runtime rather than by a test: a provider outage was
+    # answering 500. Same argument as `LLMError` — Google being unreachable is
+    # not our bug, and a client told "500" learns only that retrying is
+    # pointless, which is the opposite of the truth.
+    #
+    # `OAuthRevokedError` is a subclass and deliberately never reaches here. The
+    # service catches it and turns it into a `NotFoundError` carrying "reconnect
+    # it", because a revoked credential is not an upstream failure — it is
+    # something the *user* did, and the only useful response is the action they
+    # can take. A 502 would invite a retry that can never succeed.
+    (OAuthError, HTTPStatus.BAD_GATEWAY),
     # Deliberately absent: StorageError (app/storage/base.py). It falls through
     # to 500, which is the honest answer — the client did nothing wrong and
     # retrying the same request will not help.

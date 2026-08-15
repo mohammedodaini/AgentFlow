@@ -32,6 +32,7 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
@@ -40,6 +41,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core.config import Settings, get_settings
 from app.db.deps import get_db
+from app.db.redis import create_redis_client
 from app.main import create_app
 from app.models import Base
 from app.rag.embeddings import EmbeddingProvider, create_embedder
@@ -222,6 +224,28 @@ def embedder() -> EmbeddingProvider:
     chunk ranked first instead of merely that some rows came back.
     """
     return create_embedder(get_settings())
+
+
+@pytest.fixture
+async def redis_client() -> AsyncIterator[Redis]:
+    """A real Redis client on the test database, empty at the start of each test.
+
+    Real rather than faked, for the same reason `storage` and `embedder` are. The
+    behaviour M11 depends on is Redis' own: `SETEX` really expiring, and `GETDEL`
+    being *atomic* — which is the whole reason a state cannot be consumed twice by
+    two callbacks arriving together. A dict-shaped fake would satisfy every
+    assertion while modelling neither.
+
+    Flushed on entry rather than exit, so a test that fails mid-way leaves its keys
+    behind for inspection instead of erasing the evidence.
+    """
+    client = create_redis_client(get_settings())
+    await client.flushdb()
+
+    try:
+        yield client
+    finally:
+        await client.aclose()
 
 
 class RecordingQueue:

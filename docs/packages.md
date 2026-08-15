@@ -31,7 +31,7 @@ added at its milestone. "Popularity" = rough industry adoption for this role.
 | pyjwt | Encode/verify JWTs | ✅ | python-jose (maintenance concerns), authlib.jose | Standard |
 | argon2-cffi | Password hashing — Argon2id is the current OWASP recommendation | ✅ | bcrypt (fine, older) | Recommended modern choice |
 | authlib | OAuth 2.0 client flows for Google/Slack/Notion/GitHub | ✅ | requests-oauthlib (sync), hand-rolled (don't) | Leading OAuth lib |
-| cryptography | Encrypt OAuth tokens at rest (Fernet) | ✅ | none serious | Standard |
+| cryptography | Encrypt OAuth tokens at rest (Fernet). **Declared explicitly at M11** rather than inherited through authlib — a transitive dependency is one an upstream upgrade can remove, and discovering that at import time in production is a deploy failing for a reason nobody changed | ✅ | none serious | Standard |
 
 ## Redis & background work
 | Package | Why | Req | Alternatives | Popularity |

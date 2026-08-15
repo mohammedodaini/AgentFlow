@@ -28,6 +28,17 @@ default makes PyJWT warn on every single test, and a warning that always fires
 is a warning nobody reads.
 """
 
+PLACEHOLDER_ENCRYPTION_KEY = "YWdlbnRmbG93LWRldi1vbmx5LWluc2VjdXJlLWtleSE="  # noqa: S105
+"""The Fernet key shipped for local development. Refused in production.
+
+A *valid* key, so a fresh clone runs and its whole test suite passes without
+anyone generating one — and deliberately base64 of the readable ASCII string
+`agentflow-dev-only-insecure-key!`, so that anybody who decodes it out of a repo
+or a config dump immediately sees it is not a secret. A random-looking
+placeholder would be indistinguishable from a real key at a glance, which is
+exactly the wrong property for the one value nobody should ever ship.
+"""
+
 MINIMUM_SECRET_BYTES = 32
 """RFC 7518 §3.2: an HMAC key for HS256 must be at least as long as the hash
 output. A shorter key does not make the signature *look* invalid — it just
@@ -282,6 +293,64 @@ class Settings(BaseSettings):
     assertion — so it has to clear a higher bar, not a lower one.
     """
 
+    # --- Integrations & secrets at rest (M11) ---
+    token_encryption_key: SecretStr = SecretStr(PLACEHOLDER_ENCRYPTION_KEY)
+    """Encrypts OAuth tokens before they are written (`core/security.py`).
+
+    **A separate key from `SECRET_KEY`, deliberately, and it is worth defending.**
+    Reusing the JWT signing key would mean one leaked value both forges sessions
+    *and* decrypts every stored credential to somebody else's Google account —
+    and it would couple two rotations that have completely different urgencies.
+    Two keys is two things to manage; one key is one blast radius covering
+    everything.
+
+    Generate with:
+    `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+    """
+
+    oauth_provider: Literal["google", "offline"] = "offline"
+    """Which `OAuthProvider` implementations to build.
+
+    Defaults to `offline` for the same reason `embedding_provider` and
+    `llm_provider` do: a fresh clone must run its whole test suite with no
+    credentials and no network. The offline provider is a complete authorization
+    server that lives in memory — real codes, real expiry, real revocation, no
+    Google.
+
+    Refused in production, and the argument is sharper than for the other two. A
+    bad embedder gives bad search; a bad model gives bad answers. This one would
+    let a user complete a connect flow, see "Google Calendar — connected", and
+    hold an integration backed by tokens that were never issued by Google and
+    will never fetch a single event.
+    """
+
+    google_client_id: str = ""
+    google_client_secret: SecretStr = SecretStr("")
+    """Google OAuth client credentials.
+
+    Empty by default, and *not* refused in production. A deployment that never
+    connects Google is a perfectly valid deployment — unlike the placeholder
+    signing key or the offline embedder, an absent integration degrades nothing.
+    `IntegrationService` refuses at connect time instead, where the error can
+    name the missing variable to the person trying to use it.
+    """
+
+    oauth_redirect_base_url: str = "http://localhost:8000"
+    """The public origin Google redirects back to.
+
+    Configuration rather than derivation from the request, because a redirect URI
+    must match Google's registered value *exactly* — and deriving it from `Host`
+    would let a forwarded header change where the authorization code is sent.
+    """
+
+    oauth_state_ttl_seconds: int = 600
+    """How long an in-flight connect attempt stays valid.
+
+    Ten minutes: comfortably longer than a consent screen takes, short enough
+    that an abandoned attempt cannot be resumed by someone who later finds the
+    URL in a browser history or a proxy log.
+    """
+
     @property
     def is_development(self) -> bool:
         """True only in local development — drives human-readable log output."""
@@ -361,6 +430,47 @@ class Settings(BaseSettings):
             # only when a user asks something — so the deploy looks fine and the
             # feature is simply broken.
             message = "LLM_PROVIDER is 'anthropic' but ANTHROPIC_API_KEY is empty."
+            raise ValueError(message)
+
+        if self.oauth_provider == "offline":
+            # M11. The offline provider mints tokens no provider ever issued, so
+            # a connect flow would appear to succeed and produce an integration
+            # that can never fetch anything — a feature that looks connected and
+            # is not.
+            message = (
+                "OAUTH_PROVIDER is 'offline' in production. That provider is an "
+                "in-memory authorization server for development; it issues tokens "
+                "Google never granted. Set OAUTH_PROVIDER=google."
+            )
+            raise ValueError(message)
+
+        if self.token_encryption_key.get_secret_value() == PLACEHOLDER_ENCRYPTION_KEY:
+            # M11, and it belongs beside the SECRET_KEY check because it guards
+            # the same class of disaster from the other direction. That key
+            # forges *our* sessions; this one decrypts stored credentials to
+            # *other people's* Google accounts — a compromise we would have to
+            # disclose, and one nobody could remediate by rotating a password.
+            #
+            # The placeholder is published in this repository, so shipping it is
+            # equivalent to storing the tokens in plaintext with extra steps.
+            message = (
+                "TOKEN_ENCRYPTION_KEY is still the development placeholder in "
+                "production. That key is published in this repository, so OAuth "
+                "tokens would effectively be stored in plaintext. Generate one "
+                'with: python -c "from cryptography.fernet import Fernet; '
+                'print(Fernet.generate_key().decode())"'
+            )
+            raise ValueError(message)
+
+        if self.token_encryption_key == self.secret_key:
+            # Two keys, two blast radii. Sharing them means one leak both mints
+            # tokens for any user and decrypts every stored credential, and it
+            # couples two rotations whose urgencies have nothing in common.
+            message = (
+                "TOKEN_ENCRYPTION_KEY must not equal SECRET_KEY. One signs our "
+                "own sessions; the other protects credentials to somebody else's "
+                "account, and sharing them makes a single leak cost both."
+            )
             raise ValueError(message)
 
         return self

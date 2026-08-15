@@ -18,6 +18,7 @@ from typing import Any, Literal
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
+from cryptography.fernet import Fernet, InvalidToken
 
 from app.core.config import get_settings
 from app.core.exceptions import AuthenticationError
@@ -142,4 +143,52 @@ def decode_token(token: str, *, expected_type: TokenType) -> dict[str, Any]:
     return payload
 
 
-# TODO(M11): encrypt_secret(value) / decrypt_secret(value) — for oauth_tokens at rest
+def _fernet() -> Fernet:
+    """The cipher for secrets at rest, built per call from settings.
+
+    Not a module-level constant, because `get_settings()` is cached and tests
+    monkeypatch the environment — a cipher captured at import time would keep
+    using the key from whichever test ran first.
+    """
+    return Fernet(get_settings().token_encryption_key.get_secret_value().encode())
+
+
+def encrypt_secret(value: str) -> str:
+    """Encrypt a credential for storage.
+
+    Fernet: AES-128-CBC with an HMAC-SHA256 signature over the ciphertext, and a
+    random IV per call. Authenticated, so a tampered value fails to decrypt
+    rather than decrypting to something else — which matters here, because the
+    plaintext is a bearer credential and "decrypts to garbage" would be handed
+    straight to Google as though it were real.
+
+    **Non-deterministic, and that is a constraint on the schema rather than a
+    detail.** Encrypting the same token twice gives different ciphertext, so an
+    encrypted column can never be queried, indexed, or made UNIQUE.
+    `oauth_tokens` is therefore always reached through `integration_id`, never
+    through a token value — and anything that ever needs to look one up by
+    content needs a separate deterministic keyed hash and its own decision.
+    """
+    return _fernet().encrypt(value.encode()).decode()
+
+
+def decrypt_secret(value: str) -> str:
+    """Recover a stored credential, or raise if it cannot be trusted.
+
+    Raises `AuthenticationError` rather than propagating `InvalidToken`, for the
+    same reason `decode_token` does: the caller's correct response is identical
+    whether the key rotated, the row was tampered with, or the ciphertext was
+    truncated by a bad migration — the credential is unusable and the
+    integration has to be reconnected.
+
+    Rotating the key is the case this signature deliberately leaves room for.
+    `MultiFernet` decrypts with any key in a list while encrypting with the
+    first, which is what makes a rotation a deploy rather than an outage. It is
+    not wired up: one key is honest today, and doing otherwise would mean
+    shipping a rotation path nothing has ever exercised.
+    """
+    try:
+        return _fernet().decrypt(value.encode()).decode()
+    except InvalidToken as error:
+        message = "Stored credential could not be decrypted."
+        raise AuthenticationError(message) from error

@@ -17,14 +17,15 @@ from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 from app.models.conversation import Conversation
 from app.models.document import Document, DocumentSource, DocumentStatus
 from app.models.document_chunk import EMBEDDING_DIMENSIONS, DocumentChunk
+from app.models.integration import Integration, IntegrationStatus, Provider
 from app.models.membership import Membership, Role
 from app.models.memory import Memory, MemoryScope
 from app.models.message import Message, MessageRole
+from app.models.oauth_token import OAuthToken
 from app.models.organization import Organization
 from app.models.task import EXTRACT_MEMORIES, INGEST_DOCUMENT, Task, TaskStatus
 from app.models.user import User
 
-# TODO(M11): integrations, oauth_tokens
 # TODO(M12): approvals           · TODO(M16): events
 
 __all__ = [
@@ -39,12 +40,16 @@ __all__ = [
     "DocumentChunk",
     "DocumentSource",
     "DocumentStatus",
+    "Integration",
+    "IntegrationStatus",
     "Membership",
     "Memory",
     "MemoryScope",
     "Message",
     "MessageRole",
+    "OAuthToken",
     "Organization",
+    "Provider",
     "Role",
     "RunStatus",
     "Task",

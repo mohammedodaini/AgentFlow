@@ -17,6 +17,7 @@ from app.api.v1.routes import (
     documents,
     generation,
     health,
+    integrations,
     memories,
     organizations,
     retrieval,
@@ -34,5 +35,6 @@ api_router.include_router(generation.router)
 api_router.include_router(agent_runs.router)
 api_router.include_router(conversations.router)
 api_router.include_router(memories.router)
+api_router.include_router(integrations.router)
 
-# TODO(M11): integrations · TODO(M12): approvals
+# TODO(M12): approvals

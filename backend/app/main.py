@@ -24,6 +24,7 @@ from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.db.redis import create_redis_client
 from app.db.session import create_engine, create_session_factory
+from app.integrations import create_oauth_registry
 from app.llm import create_llm
 from app.logging.config import configure_logging
 from app.middleware.request_id import RequestIDMiddleware
@@ -67,6 +68,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # deliberately not `app.state.redis` — that client decodes replies to str,
     # while arq's job payloads are bytes. See app/workers/queue.py.
     app.state.queue = await create_queue(settings)
+
+    # M11: one OAuth provider instance per process, not per request. The offline
+    # provider *is* an authorization server and holds the codes it has issued —
+    # rebuilt per request, a code minted by /connect would be unknown to
+    # /callback and every connect flow would fail. See app/integrations/.
+    app.state.oauth_registry = create_oauth_registry(settings)
 
     # M6: the embedding provider. Built once per process because it owns an
     # HTTP client and its connection pool — constructing one per search would

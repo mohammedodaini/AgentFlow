@@ -35,6 +35,11 @@ dependencies = [
     "pyjwt>=2.10",
     "argon2-cffi>=23.1",
     "authlib>=1.3",                  # OAuth client flows
+    # M11. Fernet, for OAuth tokens at rest. Declared explicitly even though
+    # authlib already pulls it in: a transitive dependency is one an upgrade
+    # upstream can remove, and discovering that at import time in production is
+    # how a deploy fails for a reason nobody changed.
+    "cryptography>=44",
     # --- Redis & background work ---
     "redis>=5.2",
     "arq>=0.26",                     # async task queue on Redis
@@ -166,21 +171,28 @@ omit = [
     # service and route, and the extraction task. `app/agents/memory/*` stays —
     # that graph is still scaffolding, because M10 put extraction in a worker
     # task rather than a graph. It has no branches to be a graph about.
-    "app/integrations/**/*.py",
+    # M11 note: `app/integrations/**` was a blanket glob and could not stay one —
+    # the fourth time this correction has been needed in this file (M5 for
+    # `rag/`, M9 for `agents/`, M10 for `memory/`). The package now holds
+    # implemented modules (base.py, offline.py, google_calendar/) beside six
+    # unbuilt providers, and a directory glob would have hidden the implemented
+    # ones from the gate. That is precisely the failure test_stub_manifest.py
+    # exists to catch, and it caught it.
+    "app/integrations/github/*.py",
+    "app/integrations/gmail/*.py",
+    "app/integrations/google_drive/*.py",
+    "app/integrations/notion/*.py",
+    "app/integrations/slack/*.py",
+    "app/integrations/stripe/*.py",
     "app/workers/tasks/agent_execution.py",
     "app/workers/tasks/email_sync.py",
     "app/api/v1/routes/approvals.py",
-    "app/api/v1/routes/integrations.py",
     "app/middleware/rate_limit.py",
     "app/monitoring/metrics.py",
     "app/models/approval.py",
     "app/models/event.py",
-    "app/models/integration.py",
-    "app/models/oauth_token.py",
     "app/schemas/approval.py",
-    "app/schemas/integration.py",
     "app/services/approval_service.py",
-    "app/services/integration_service.py",
 ]
 
 [tool.coverage.report]

@@ -66,61 +66,70 @@ half-milestone and call it shipped.
 ## Where the project is
 
 `CLAUDE.md` is authoritative — read it, not this paragraph, for the current
-position. As of the last update: **M1–M10 shipped**, next is **M11**.
+position. As of the last update: **M1–M11 shipped**, next is **M12**.
 
 The working mode is **autonomous through M12**, at the user's explicit
 instruction: *"let us do that and just finsh m6-m12 without mentor mode"*.
 Mentor mode resumes at M13.
 
-## M11 — first OAuth integration (Google)
+## M12 — human-in-the-loop approvals
 
-`docs/roadmap.md` and `docs/database.md` are the specification. In outline:
+`docs/roadmap.md`, `docs/agents.md` and `docs/database.md` are the specification.
+This is the **last milestone of the autonomous run** — mentor mode resumes at M13.
+In outline:
 
-- `integrations` and `oauth_tokens` tables. They are **two tables on purpose**
-  (`docs/database.md`): token secrets can then carry stricter access controls and
-  their own rotation without touching integration metadata.
-- The connect flow end to end: redirect, callback, state parameter, token
-  exchange, refresh.
-- Calendar **read** only. Writes wait for M12, because a write with no approval
-  record is exactly what M12 exists to prevent.
+- `approvals`: `agent_run_id FK, organization_id FK, requested_action jsonb,
+  status (pending|approved|rejected|expired), decided_by FK users, decided_at`.
+- A LangGraph **interrupt**, so a graph can stop mid-run and resume later.
+- Google Calendar **write** and an email draft, both behind an approval. M11
+  deliberately requested only `calendar.readonly`; the write scope is earned here,
+  which means the connect flow's scope list changes and every already-connected
+  user has to re-consent. Say so plainly in the milestone note.
 
-**The key risk, named in the roadmap: storing a refresh token in plaintext.** It
-is a credential to somebody else's account, with a long life and no user
-interaction needed to use it. `docs/database.md` says tokens are encrypted **at
-the application layer before insert** — so a database dump, a log line, a backup
-or a `SELECT *` in a support session must not yield a usable credential. Decide
-where the key comes from and write it down; a key sitting beside the ciphertext
-protects against nothing.
+**The key risk, named in the roadmap: an approval that is only an in-memory
+interrupt does not survive a restart.** It must be a **row** as well. A deploy, a
+crash or a scale-down happens between "please approve this" and the click, and the
+work must still be there afterwards — otherwise the first restart silently drops
+every pending action, and nobody finds out until a customer asks why the email
+they approved never went.
 
-**Two more things worth designing rather than discovering:**
+**This is where two things from M9 finally get used**, and both are already in the
+schema: `agent_runs.checkpoint` (LangGraph's serialised state — ADR-0012 explains
+why it is stored and never published) and `RunStatus.PAUSED_FOR_APPROVAL`. If
+either turns out to be the wrong shape, say so and change it; they were written
+before anything needed them.
 
-- **The `state` parameter is CSRF protection, not decoration.** An OAuth callback
-  with no state check lets an attacker connect *their* account to *your*
-  organization — and everything afterwards looks perfectly legitimate.
-- **A refresh token that fails to refresh is a normal state**, not an exception.
-  Users revoke access. The integration needs a status the UI can show and a path
-  back to reconnecting, or the first revocation becomes a support ticket about an
-  agent that silently stopped working.
+**It also owns pricing.** `agent_runs.cost_usd` is `Decimal(0)` everywhere,
+deliberately, because a guessed rate would appear in reports and be trusted. M12 is
+where real per-token pricing arrives — and where the number must be derived from
+recorded token counts rather than estimated.
+
+**Three things worth designing rather than discovering:**
+
+- **An approval is a decision about a *specific* action, not a general
+  permission.** Store the full `requested_action` — the actual email body, the
+  actual event — so what was approved is what executes. Re-deriving the action at
+  execution time means a user approved a summary and something else ran.
+- **Approving twice must not execute twice.** The click arrives from a browser, and
+  browsers retry. The status transition is the idempotency key.
+- **Rejection and expiry are normal outcomes**, not errors. A run that ends
+  `cancelled` because nobody approved it in time is working correctly.
 
 **Before you finish: `make eval` must still pass.**
 
-**What you can and cannot verify without a key:** the tables, the encryption
-round trip, the state check, the token refresh logic and its failure handling —
-all testable offline against a fake authorization server. Whether the real Google
-consent screen behaves as documented — not testable here. Say so plainly, and
-follow the pattern the other providers use: a protocol, a real implementation,
-and an offline one that is obviously not a product.
+**What you can and cannot verify without a key:** the approval rows, the
+interrupt-and-resume across a process restart, the idempotency, the expiry sweep and
+the tenancy — all testable offline. Whether a *model* asks for approval at the right
+moments is not testable here, because the offline provider does not choose tools at
+all (ADR-0012 is explicit that this is not a tool-calling ReAct loop). Say so
+plainly, and gate the side effect in code rather than relying on the model to ask.
 
-## M12, after that
+## After M12
 
-| Milestone | What it is | The key risk |
-|---|---|---|
-| M12 | Human-in-the-loop: approval records, LangGraph interrupts, Calendar write and email draft behind approval | An approval that is only an in-memory interrupt does not survive a restart. It must be a **row** as well |
-
-M12 is also where `agent_runs.checkpoint` and `RunStatus.PAUSED_FOR_APPROVAL`
-finally get used — both exist already, unwritten, from M9. It owns pricing too:
-`agent_runs.cost_usd` is `Decimal(0)` everywhere until then, deliberately, because
-a guessed rate would appear in reports and get trusted.
+**Mentor mode resumes at M13** (`CLAUDE.md`, "The mentorship contract"). Do not
+build M13 autonomously. There are also two long-deferred items to raise when the
+user next engages directly: the architecture quiz and the bad-`POST /documents`
+exercise, both listed under "Still pending" in `CLAUDE.md`.
 
 ## House style — non-negotiable, and the reason this codebase reads as it does
 
