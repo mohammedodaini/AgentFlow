@@ -57,6 +57,38 @@ class AgentState(TypedDict, total=False):
     later would mean revisiting every node.
     """
 
+    history: list[dict[str, str]]
+    """Earlier turns of this conversation, already bounded to a token budget by
+    `app/agents/history.py`, as `{"role": ..., "content": ...}` pairs.
+
+    Separate from `messages`, and the duplication is deliberate. `messages` is
+    LangChain's type, carries the `add_messages` reducer, and is what a
+    tool-calling model will eventually consume. `history` is the plain,
+    JSON-round-trippable form the *prompt* is rendered from — and it has already
+    been through the window, so no node can accidentally render the unbounded
+    version. Collapsing the two would mean either putting an appending reducer
+    on the thing that must not grow, or dropping the reducer M15 needs.
+    """
+
+    memories: list[dict[str, Any]]
+    """Recalled long-term memories, serialised from `ScoredMemory`.
+
+    Held in state rather than fetched inside `generate`, so the trace records
+    what was recalled even on a run that ends up refusing — "the agent knew X and
+    said nothing" and "the agent never recalled X" are different bugs with
+    identical symptoms.
+    """
+
+    context_terms: str
+    """Keywords lifted from earlier turns, used to make a follow-up question
+    searchable on its own.
+
+    Kept apart from `search_query` so `rewrite` can rebuild a query from
+    `question` plus these terms rather than rewriting an already-rewritten
+    string. Compounding rewrites is how a second attempt ends up searching for
+    something neither the user nor the first attempt asked about.
+    """
+
     search_query: str
     """What retrieval was actually asked, which may differ from `question` after
     a rewrite. Recorded so the trace shows the query that produced the chunks

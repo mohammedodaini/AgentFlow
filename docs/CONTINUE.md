@@ -66,58 +66,61 @@ half-milestone and call it shipped.
 ## Where the project is
 
 `CLAUDE.md` is authoritative — read it, not this paragraph, for the current
-position. As of the last update: **M1–M9 shipped**, next is **M10**.
+position. As of the last update: **M1–M10 shipped**, next is **M11**.
 
 The working mode is **autonomous through M12**, at the user's explicit
 instruction: *"let us do that and just finsh m6-m12 without mentor mode"*.
 Mentor mode resumes at M13.
 
-## M10 — conversations and memory
+## M11 — first OAuth integration (Google)
 
-`docs/roadmap.md` and `docs/agents.md` are the specification. In outline:
+`docs/roadmap.md` and `docs/database.md` are the specification. In outline:
 
-- `conversations` and `messages` tables. **`agent_runs.conversation_id` was
-  deliberately left out at M9** because `conversations` did not exist — adding
-  that column and its FK is part of this milestone, not an afterthought.
-- Multi-turn: the agent should answer a follow-up that only makes sense given
-  the previous turn. `AgentState.messages` already carries the `add_messages`
-  reducer, so history is an addition rather than a rewrite of every node.
-- Long-term memory in `app/memory/`: extraction, recall, and a decay or
-  summarisation policy. Distinct from `rag/` — that is what the *business*
-  uploaded, this is what the *agent* learned.
-- **Memory extraction runs after the response is sent** (`docs/agents.md` rule
-  5). It must never add latency to a user's turn, which means an arq task, and
-  ADR-0008 applies: enqueue only after the transaction commits.
+- `integrations` and `oauth_tokens` tables. They are **two tables on purpose**
+  (`docs/database.md`): token secrets can then carry stricter access controls and
+  their own rotation without touching integration metadata.
+- The connect flow end to end: redirect, callback, state parameter, token
+  exchange, refresh.
+- Calendar **read** only. Writes wait for M12, because a write with no approval
+  record is exactly what M12 exists to prevent.
 
-**The failure to design against is unbounded context.** Every turn appended to
-every prompt grows cost linearly and answer quality does not follow. Whatever
-summarisation or windowing you choose, test that a long conversation stays
-inside a token budget — `context_token_budget` already exists and this is a
-second consumer of it.
+**The key risk, named in the roadmap: storing a refresh token in plaintext.** It
+is a credential to somebody else's account, with a long life and no user
+interaction needed to use it. `docs/database.md` says tokens are encrypted **at
+the application layer before insert** — so a database dump, a log line, a backup
+or a `SELECT *` in a support session must not yield a usable credential. Decide
+where the key comes from and write it down; a key sitting beside the ciphertext
+protects against nothing.
+
+**Two more things worth designing rather than discovering:**
+
+- **The `state` parameter is CSRF protection, not decoration.** An OAuth callback
+  with no state check lets an attacker connect *their* account to *your*
+  organization — and everything afterwards looks perfectly legitimate.
+- **A refresh token that fails to refresh is a normal state**, not an exception.
+  Users revoke access. The integration needs a status the UI can show and a path
+  back to reconnecting, or the first revocation becomes a support ticket about an
+  agent that silently stopped working.
 
 **Before you finish: `make eval` must still pass.**
 
-**What you can and cannot verify without a key:** the tables, the history
-threading, the token budget, the extraction task and its scheduling — all
-testable offline. Whether the *summaries* are any good — not testable, because
-the offline provider quotes rather than summarises. Say so plainly.
+**What you can and cannot verify without a key:** the tables, the encryption
+round trip, the state check, the token refresh logic and its failure handling —
+all testable offline against a fake authorization server. Whether the real Google
+consent screen behaves as documented — not testable here. Say so plainly, and
+follow the pattern the other providers use: a protocol, a real implementation,
+and an offline one that is obviously not a product.
 
-## M11 and M12, after that
-
-Checked against `docs/roadmap.md` — an earlier version of this table had M11 and
-M12 the wrong way round and listed an "observability" milestone the roadmap does
-not contain. Read the roadmap, not a remembered summary of it.
+## M12, after that
 
 | Milestone | What it is | The key risk |
 |---|---|---|
-| M11 | First OAuth integration (Google): connect flow, encrypted token storage, Calendar read | Storing a refresh token in plaintext. It is a credential to somebody else's account |
 | M12 | Human-in-the-loop: approval records, LangGraph interrupts, Calendar write and email draft behind approval | An approval that is only an in-memory interrupt does not survive a restart. It must be a **row** as well |
 
-Neither needs an API key to build; both need one to evaluate. Same honesty rule
-throughout: verify the plumbing, state the limit.
-
 M12 is also where `agent_runs.checkpoint` and `RunStatus.PAUSED_FOR_APPROVAL`
-finally get used — both exist already, unwritten, from M9.
+finally get used — both exist already, unwritten, from M9. It owns pricing too:
+`agent_runs.cost_usd` is `Decimal(0)` everywhere until then, deliberately, because
+a guessed rate would appear in reports and get trusted.
 
 ## House style — non-negotiable, and the reason this codebase reads as it does
 

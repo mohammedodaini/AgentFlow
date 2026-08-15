@@ -27,6 +27,7 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents import RAG_AGENT
+from app.agents.history import HistoryTurn
 from app.agents.rag.graph import build_graph
 from app.core.config import Settings
 from app.core.exceptions import NotFoundError
@@ -61,17 +62,33 @@ class AgentService:
         *,
         user_id: uuid.UUID | None = None,
         top_k: int | None = None,
+        conversation_id: uuid.UUID | None = None,
+        history: list[HistoryTurn] | None = None,
     ) -> AgentRun:
-        """Answer a question through the RAG graph, fully traced."""
+        """Answer a question through the RAG graph, fully traced.
+
+        `history` is passed in rather than loaded here, and the boundary is
+        deliberate: this service owns *execution*, `ConversationService` owns the
+        thread. A run invoked from `POST /agent-runs` has neither, and that has
+        to stay expressible without this method knowing anything about
+        conversations beyond an id it records.
+        """
         payload: dict[str, Any] = {
             "question": question,
             "top_k": top_k or self._settings.retrieval_top_k,
+            # Recorded so a run can be replayed with the context it actually had.
+            # Without it, replaying a follow-up would search for "how much is
+            # it?" against an empty thread and legitimately find nothing — and
+            # the replay would look like a retrieval bug rather than a missing
+            # input.
+            "history_turns": len(history or []),
         }
         run = await self._runs.create(
             organization_id=organization_id,
             agent_name=RAG_AGENT,
             payload=payload,
             triggered_by=user_id,
+            conversation_id=conversation_id,
         )
         # Committed before the graph starts, deliberately. Without this the row
         # exists only inside an uncommitted transaction, so a process killed
@@ -103,6 +120,13 @@ class AgentService:
                     "organization_id": organization_id,
                     "user_id": user_id,
                     "attempts": 0,
+                    # Plain dicts, not `HistoryTurn` objects. State is
+                    # checkpointed as JSONB, and a dataclass that cannot round
+                    # trip through JSON is a run that cannot resume — the
+                    # failure M12 would discover, not this milestone.
+                    "history": [
+                        {"role": turn.role, "content": turn.content} for turn in history or []
+                    ],
                 }
             )
         except LLMError as error:

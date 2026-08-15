@@ -28,7 +28,7 @@ from arq.connections import ArqRedis, RedisSettings
 from fastapi import Request
 
 from app.core.config import Settings
-from app.models.task import INGEST_DOCUMENT
+from app.models.task import EXTRACT_MEMORIES, INGEST_DOCUMENT
 
 logger = structlog.get_logger(__name__)
 
@@ -129,5 +129,50 @@ async def enqueue_ingestion(
         "queue.enqueued",
         kind=INGEST_DOCUMENT,
         document_id=str(document_id),
+        task_id=str(task_id),
+    )
+
+
+def memory_extraction_job_id(task_id: uuid.UUID) -> str:
+    """The arq job id for one memory-extraction task. Same idempotency argument
+    as `ingestion_job_id`: arq treats a job id as a key, so re-enqueueing one
+    that is already queued is a no-op rather than a second extraction."""
+    return f"memory:{task_id}"
+
+
+async def enqueue_memory_extraction(
+    queue: JobQueue,
+    *,
+    conversation_id: uuid.UUID,
+    organization_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    task_id: uuid.UUID,
+    agent_run_id: uuid.UUID | None,
+) -> None:
+    """Ask a worker to read a finished exchange and store what it learned.
+
+    Enqueued *after* the turn's transaction commits, exactly as ingestion is
+    (ADR-0008). The consequence is sharper here than it was at M5: the worker
+    reads the conversation back from Postgres, so a job that arrived before the
+    commit would find the thread without the two messages it exists to extract
+    from — and would succeed, having learned nothing, with no error anywhere.
+
+    `user_id` travels even though the worker could read it off the conversation.
+    It is what the *scope* of every stored memory is set from, and re-deriving a
+    privacy boundary in a second place is how the two eventually disagree.
+    """
+    await queue.enqueue_job(
+        EXTRACT_MEMORIES,
+        conversation_id=str(conversation_id),
+        organization_id=str(organization_id),
+        user_id=str(user_id) if user_id else None,
+        task_id=str(task_id),
+        agent_run_id=str(agent_run_id) if agent_run_id else None,
+        _job_id=memory_extraction_job_id(task_id),
+    )
+    logger.info(
+        "queue.enqueued",
+        kind=EXTRACT_MEMORIES,
+        conversation_id=str(conversation_id),
         task_id=str(task_id),
     )

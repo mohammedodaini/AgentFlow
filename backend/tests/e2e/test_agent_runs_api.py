@@ -20,7 +20,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.rag.graph import GENERATE, RETRIEVE
+from app.agents.rag.graph import GENERATE, PREPARE, RETRIEVE
 from app.agents.rag.tools import SEARCH_CHUNKS
 from app.models.agent_run import RunStatus
 from app.storage import ObjectStorage
@@ -57,7 +57,7 @@ async def test_the_agent_answers_and_returns_its_trace(
     assert body["agent_name"] == "rag"
     assert "reimbursed" in body["output"]["answer"]
     assert body["output"]["citations"]
-    assert [step["node_name"] for step in body["steps"]] == [RETRIEVE, GENERATE]
+    assert [step["node_name"] for step in body["steps"]] == [PREPARE, RETRIEVE, GENERATE]
 
 
 async def test_the_trace_is_returned_to_the_client_not_only_the_operator(

@@ -258,6 +258,30 @@ class Settings(BaseSettings):
     bill if `top_k` is raised.
     """
 
+    # --- Conversations & memory (M10) ---
+    history_token_budget: int = 2000
+    """How many tokens of *conversation history* may accompany a question.
+
+    Separate from `context_token_budget`, and that separation is the point. One
+    shared budget would mean a long thread starving the retrieved documents —
+    answers would get worse as a conversation got longer, with nothing in the
+    logs to say why, because the total spend would look unchanged. Two budgets
+    make the trade explicit and independently tunable.
+
+    2000 is roughly a dozen turns, which covers the follow-ups a person actually
+    strings together before changing subject. Beyond that the window drops the
+    oldest turns, and long-term memory is what carries anything that mattered —
+    see `app/agents/history.py`.
+    """
+
+    memory_top_k: int = 3
+    """Long-term memories recalled per turn.
+
+    Deliberately smaller than `retrieval_top_k`. Every memory spends prompt
+    budget a *citable* document chunk could have used, and a memory is an uncited
+    assertion — so it has to clear a higher bar, not a lower one.
+    """
+
     @property
     def is_development(self) -> bool:
         """True only in local development — drives human-readable log output."""

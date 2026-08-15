@@ -40,6 +40,7 @@ class AgentRunRepository:
         agent_name: str,
         payload: dict[str, Any],
         triggered_by: uuid.UUID | None,
+        conversation_id: uuid.UUID | None = None,
     ) -> AgentRun:
         """Open a run in `running` state.
 
@@ -51,6 +52,7 @@ class AgentRunRepository:
             organization_id=organization_id,
             agent_name=agent_name,
             triggered_by=triggered_by,
+            conversation_id=conversation_id,
             status=RunStatus.RUNNING,
             input=payload,
             started_at=datetime.now(UTC),

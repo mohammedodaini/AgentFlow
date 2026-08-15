@@ -161,30 +161,25 @@ omit = [
     "app/agents/proposal/*.py",
     "app/agents/research/*.py",
     "app/agents/supervisor/*.py",
+    # M10 delisted twelve entries from here: `app/memory/**`, the memory
+    # repository, the three new models and their schemas, the conversation
+    # service and route, and the extraction task. `app/agents/memory/*` stays —
+    # that graph is still scaffolding, because M10 put extraction in a worker
+    # task rather than a graph. It has no branches to be a graph about.
     "app/integrations/**/*.py",
-    "app/memory/**/*.py",
-    "app/repositories/memory_repository.py",
     "app/workers/tasks/agent_execution.py",
     "app/workers/tasks/email_sync.py",
-    "app/workers/tasks/memory_extraction.py",
     "app/api/v1/routes/approvals.py",
-    "app/api/v1/routes/conversations.py",
     "app/api/v1/routes/integrations.py",
     "app/middleware/rate_limit.py",
     "app/monitoring/metrics.py",
     "app/models/approval.py",
-    "app/models/conversation.py",
     "app/models/event.py",
     "app/models/integration.py",
-    "app/models/memory.py",
-    "app/models/message.py",
     "app/models/oauth_token.py",
     "app/schemas/approval.py",
-    "app/schemas/conversation.py",
     "app/schemas/integration.py",
-    "app/schemas/memory.py",
     "app/services/approval_service.py",
-    "app/services/conversation_service.py",
     "app/services/integration_service.py",
 ]
 

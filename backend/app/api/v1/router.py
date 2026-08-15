@@ -13,9 +13,11 @@ from fastapi import APIRouter
 from app.api.v1.routes import (
     agent_runs,
     auth,
+    conversations,
     documents,
     generation,
     health,
+    memories,
     organizations,
     retrieval,
     users,
@@ -30,5 +32,7 @@ api_router.include_router(documents.router)
 api_router.include_router(retrieval.router)
 api_router.include_router(generation.router)
 api_router.include_router(agent_runs.router)
+api_router.include_router(conversations.router)
+api_router.include_router(memories.router)
 
-# TODO(M10): conversations · TODO(M11): integrations · TODO(M12): approvals
+# TODO(M11): integrations · TODO(M12): approvals

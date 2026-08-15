@@ -32,13 +32,20 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 INGEST_DOCUMENT = "ingest_document"
-"""The only `kind` at M5.
+"""The first `kind`, added at M5.
 
 A plain string rather than an enum: `kind` names a *function*, and the set of
 background functions changes with every milestone. A native Postgres enum would
 demand an `ALTER TYPE` migration each time — precisely the cost M2 learned
 about the hard way — while buying nothing, because the value is never rendered
 to a user and never branched on outside the worker registry.
+"""
+
+EXTRACT_MEMORIES = "extract_memories"
+"""M10: read a finished run and store what is worth remembering.
+
+The second `kind`, and the vindication of the paragraph above — it arrived as a
+constant and a worker registration, with no migration at all.
 """
 
 

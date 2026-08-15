@@ -58,6 +58,31 @@ words also appear in the right chunk. The integration test caught it.
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 _WORD = re.compile(r"[a-z0-9]+")
 
+FACTS_LABEL = "Facts:"
+"""The last line of `prompts/memory/extract.md`, and how this class knows it is
+being asked to extract memories rather than to answer a question.
+
+A second coupling to a second template, on the same terms as the first: it is
+written down here, and `tests/unit/test_offline_llm.py` renders the real
+template and asserts the marker is in it. Silent drift between the two would
+turn every extraction into an attempt to *answer* the conversation as though it
+were a question — producing fluent, plausible, entirely fabricated "facts", and
+storing them.
+"""
+
+USER_TURN_PREFIX = "User:"
+"""How `app/agents/history.py` labels a user turn.
+
+Only those lines are read. The extraction prompt's rule 3 says record what the
+*person* said, and an offline implementation that quoted the assistant back
+would manufacture memories out of the system's own guesses — which is precisely
+the failure that makes agent memory dangerous rather than merely useless.
+"""
+
+_FIRST_PERSON = re.compile(r"\b(i|we|our|my|us)\b", re.IGNORECASE)
+"""What passes for "the person stated something about themselves" without a
+model. Crude on purpose — see `_extract_facts`."""
+
 NO_CONTEXT_ANSWER = "I could not find anything about that in your documents."
 """What to say when nothing was retrieved.
 
@@ -110,6 +135,66 @@ class OfflineLLM:
             yield word if index == 0 else f" {word}"
 
     def _answer(self, prompt: str) -> str:
+        """Produce a reply for whichever prompt this is.
+
+        Two modes, selected by a marker in the prompt rather than by a method
+        argument, because `LLMProvider` is deliberately a text-in/text-out seam
+        (ADR-0010) — a real model distinguishes these by *reading* them, and an
+        offline stand-in that got a mode flag would be exercising a code path
+        production does not have.
+        """
+        if prompt.rstrip().endswith(FACTS_LABEL):
+            return self._extract_facts(prompt)
+
+        return self._quote_answer(prompt)
+
+    def _extract_facts(self, prompt: str) -> str:
+        """Return the user's own declarative statements as `- ` bullets.
+
+        Lexical, not semantic, and it should be read as the memory counterpart
+        of `HashingEmbedder`: it makes the whole extraction pipeline —
+        prompting, parsing, embedding, dedup, storage, recall — runnable and
+        testable with no API key, and it is not a memory extractor.
+
+        What it actually implements is "sentences the user said, in the first
+        person, that are not questions". Rule 1 of the prompt (*is it durable?*)
+        is a judgement about meaning, and this cannot make it: "I am in a meeting
+        until three" passes every test here and is exactly the kind of fact the
+        real prompt tells a model to reject.
+
+        So it will store things a real extractor would not. What it will *not* do
+        is invent: every line it emits is a sentence the user typed. That is the
+        property worth having in a stand-in — the pipeline can be trusted to be
+        wired correctly, and nothing pretends the judgement has been tested.
+        """
+        transcript = prompt.split(FACTS_LABEL, maxsplit=1)[0]
+        facts: list[str] = []
+
+        for line in transcript.splitlines():
+            stripped = line.strip()
+
+            if not stripped.startswith(USER_TURN_PREFIX):
+                continue
+
+            said = stripped.removeprefix(USER_TURN_PREFIX).strip()
+
+            for sentence in _SENTENCE.split(said):
+                candidate = sentence.strip()
+
+                # Questions are excluded by rule 2 of the prompt ("do not record
+                # questions"), and excluded here for a sharper reason: in a RAG
+                # product almost every user turn *is* a question, so without this
+                # the store would fill with what people asked instead of what
+                # they said, and recall would surface old questions as facts.
+                if not candidate or candidate.endswith("?"):
+                    continue
+
+                if _FIRST_PERSON.search(candidate):
+                    facts.append(f"- {candidate}")
+
+        return "\n".join(facts[:5]) if facts else "NONE"
+
+    def _quote_answer(self, prompt: str) -> str:
         """Pick the sentence with the most words in common with the question."""
         blocks = _BLOCK.findall(prompt)
 

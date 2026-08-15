@@ -23,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents import RAG_AGENT
-from app.agents.rag.graph import GENERATE, MAX_ATTEMPTS, RETRIEVE, REWRITE
+from app.agents.rag.graph import GENERATE, MAX_ATTEMPTS, PREPARE, RETRIEVE, REWRITE
 from app.agents.rag.tools import SEARCH_CHUNKS, build_search_chunks
 from app.core.config import get_settings
 from app.core.exceptions import NotFoundError
@@ -125,7 +125,13 @@ async def test_a_successful_run_records_who_asked_and_what(
 
     assert run.agent_name == RAG_AGENT
     assert run.triggered_by == user_id
-    assert run.input == {"question": "how are expenses reimbursed?", "top_k": 3}
+    # `history_turns` is 0 for a one-shot run and present regardless (M10). It is
+    # recorded so a run can be replayed with the context it actually had.
+    assert run.input == {
+        "question": "how are expenses reimbursed?",
+        "top_k": 3,
+        "history_turns": 0,
+    }
     assert run.finished_at is not None
     assert run.duration_ms is not None
 
@@ -158,7 +164,7 @@ async def test_the_trace_records_every_node_in_order(
 
     steps = list(run.steps)
     assert [step.step_index for step in steps] == list(range(len(steps)))
-    assert [step.node_name for step in steps] == [RETRIEVE, GENERATE]
+    assert [step.node_name for step in steps] == [PREPARE, RETRIEVE, GENERATE]
 
 
 async def test_the_retrieval_step_records_the_tool_and_its_result(

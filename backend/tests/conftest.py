@@ -77,7 +77,7 @@ def resolve_test_redis_url() -> str:
 
 
 async def _create_schema(url: str) -> None:
-    """Create the test database if absent, then build the schema in it.
+    """Create the test database if absent, then build the schema in it *fresh*.
 
     `CREATE DATABASE` cannot run inside a transaction, hence AUTOCOMMIT on the
     admin connection.
@@ -85,10 +85,37 @@ async def _create_schema(url: str) -> None:
     Tables come from `Base.metadata.create_all`, not from running migrations.
     That is a real tradeoff: it is fast and it keeps schema bugs separate from
     migration bugs, but it means these tests would still pass if a migration
-    were missing. `alembic check` answers that question instead — it is the
-    tool built for it.
+    were missing. `alembic check` answers that question instead — it is the tool
+    built for it.
+
+    Why the schema is dropped first (M10)
+    -------------------------------------
+    `create_all` is `CREATE TABLE IF NOT EXISTS`. It builds tables that are
+    absent and *never alters one that already exists* — so the day a milestone
+    adds a column to an existing table, every developer whose test database
+    survived the previous run silently gets the old shape, and the failure
+    surfaces as an `UndefinedColumnError` from inside an unrelated test. M10
+    added `agent_runs.conversation_id` and hit exactly that.
+
+    `DROP SCHEMA ... CASCADE` rather than `metadata.drop_all()`, because
+    `drop_all` drops tables and **not** the native enum types they use — the same
+    fact that has now needed a hand-written line in four migrations (M2, M5, M9,
+    M10). Dropping tables alone would leave `run_status` behind, and the next
+    `create_all` would fail with "type run_status already exists".
     """
     target = make_url(url)
+
+    # A guard, not a formality. This function drops everything in the database it
+    # is handed, and it takes its URL from `DATABASE_URL` — one careless export
+    # and the target is a real database. The `_test` suffix is the invariant
+    # `resolve_test_database_url` exists to maintain; this refuses to proceed if
+    # anything has broken it.
+    if not (target.database or "").endswith("_test"):
+        message = (
+            f"Refusing to rebuild the schema in {target.database!r}: the test "
+            "database name must end in '_test'."
+        )
+        raise RuntimeError(message)
     admin_engine = create_async_engine(
         target.set(database=MAINTENANCE_DATABASE).render_as_string(hide_password=False),
         isolation_level="AUTOCOMMIT",
@@ -111,10 +138,16 @@ async def _create_schema(url: str) -> None:
     engine = create_async_engine(url, poolclass=NullPool)
     try:
         async with engine.begin() as connection:
+            # Tables *and* types, in one statement. See the docstring.
+            await connection.execute(text("DROP SCHEMA public CASCADE"))
+            await connection.execute(text("CREATE SCHEMA public"))
+
             # M6. `create_all` builds tables, not extensions, and a
             # `vector(1536)` column cannot be created before the type exists.
-            # The migration does this too; the test schema is built from
-            # metadata rather than migrations (ADR-0006), so it needs its own.
+            # The migration does this too; the test schema is built from metadata
+            # rather than migrations (ADR-0006), so it needs its own. It also has
+            # to come *after* the schema is recreated — the extension lives in
+            # `public` and went down with it.
             await connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             await connection.run_sync(Base.metadata.create_all)
     finally:

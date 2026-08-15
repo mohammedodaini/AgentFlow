@@ -11,9 +11,10 @@ a process restart and, from M12, an approval pause of arbitrary length: the
 graph stops, the row persists, and a later request resumes from where it paused
 rather than starting again.
 
-`conversation_id` is in the scaffold's plan and deliberately absent here.
-`conversations` does not exist until M10, and a foreign key to a missing table
-is not a design decision, it is a broken migration.
+`conversation_id` was deliberately absent at M9 — `conversations` did not exist,
+and a foreign key to a missing table is not a design decision, it is a broken
+migration. M10 built the table and added the column, which is what that comment
+was waiting for.
 """
 
 from __future__ import annotations
@@ -77,6 +78,19 @@ class AgentRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     deleting an organization takes its runs — a trace nobody may read is not
     worth the storage."""
 
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True
+    )
+    """Which thread this run belonged to, or NULL for a one-shot invocation
+    (`POST /agent-runs`, the eval harness, a future cron job).
+
+    Nullable because a run is not owned by a conversation — it is *attributed*
+    to one. `SET NULL` for the same reason `messages.agent_run_id` is: deleting
+    a thread must not delete the billing record of work already done and paid
+    for. The two tables reference each other in opposite directions, and neither
+    reference is allowed to destroy the other's rows.
+    """
+
     triggered_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -94,7 +108,23 @@ class AgentRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """
 
     status: Mapped[RunStatus] = mapped_column(
-        Enum(RunStatus, name="run_status", native_enum=True), nullable=False
+        Enum(
+            RunStatus,
+            name="run_status",
+            native_enum=True,
+            # Store "running", not "RUNNING". M9 omitted this and nothing broke,
+            # because SQLAlchemy writes and reads by the same rule either way —
+            # so `run_status` became the only enum in the schema holding member
+            # *names* while `membership_role`, `document_status`,
+            # `document_source` and `task_status` all hold values.
+            #
+            # The cost of that is invisible until someone types SQL. `WHERE
+            # status = 'running'` returns zero rows, with no error, and
+            # `docs/database.md` documents the lowercase form. M10 renamed the
+            # labels in place (`ALTER TYPE ... RENAME VALUE`) and added this.
+            values_callable=lambda enum_class: [member.value for member in enum_class],
+        ),
+        nullable=False,
     )
 
     input: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)

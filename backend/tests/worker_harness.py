@@ -27,6 +27,8 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.llm import create_llm
+from app.llm.base import LLMProvider
 from app.models import Document
 from app.models.task import Task
 from app.rag.embeddings import EmbeddingProvider, create_embedder
@@ -63,6 +65,7 @@ def worker_context(
     storage: ObjectStorage,
     *,
     embedder: EmbeddingProvider | None = None,
+    llm: LLMProvider | None = None,
     job_try: int = 1,
     max_tries: int = 3,
 ) -> dict[str, Any]:
@@ -76,6 +79,12 @@ def worker_context(
     stubbed, so tests exercise the real chunker and the real offline embedder —
     the failures worth catching (a chunk over the limit, a vector of the wrong
     width) are invisible to a stub that returns whatever it is asked for.
+
+    `llm` joined at M10, when memory extraction made the worker a caller of
+    models. It is the one entry usually *overridden*: extraction is the single
+    place where the reply's exact format decides whether anything is stored, so a
+    test about storage should choose the reply rather than depend on the offline
+    provider's judgement of what is worth remembering.
     """
     settings = get_settings()
     return {
@@ -83,6 +92,7 @@ def worker_context(
         "storage": storage,
         "settings": settings,
         "embedder": embedder or create_embedder(settings),
+        "llm": llm or create_llm(settings),
         "job_try": job_try,
         "max_tries": max_tries,
     }

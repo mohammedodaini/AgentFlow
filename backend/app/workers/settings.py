@@ -24,11 +24,13 @@ from arq.connections import RedisSettings
 
 from app.core.config import get_settings
 from app.db.session import create_engine, create_session_factory
+from app.llm import create_llm
 from app.logging.config import configure_logging
 from app.rag.embeddings import create_embedder
 from app.storage import create_storage
 from app.workers.queue import build_redis_settings
 from app.workers.tasks.ingestion import ingest_document
+from app.workers.tasks.memory_extraction import extract_memories
 
 logger = structlog.get_logger(__name__)
 
@@ -55,6 +57,11 @@ async def startup(ctx: dict[str, Any]) -> None:
     # same reason it holds its own engine — this is a separate process and
     # cannot reach `app.state`.
     ctx["embedder"] = create_embedder(_settings)
+
+    # M10: the worker generates too — memory extraction is a model call. Its own
+    # instance, for the same reason it holds its own engine: this is a separate
+    # process and cannot reach `app.state`.
+    ctx["llm"] = create_llm(_settings)
     ctx["settings"] = _settings
 
     logger.info(
@@ -62,6 +69,7 @@ async def startup(ctx: dict[str, Any]) -> None:
         env=_settings.env,
         storage=_settings.storage_backend,
         embeddings=_settings.embedding_provider,
+        llm=_settings.llm_provider,
     )
 
 
@@ -79,11 +87,11 @@ class WorkerSettings:
     never instantiated, so this is a namespace rather than an object.
     """
 
-    functions = [ingest_document]
+    functions = [ingest_document, extract_memories]
     """The registry. arq names a job by the function's `__qualname__`, so the
-    string `INGEST_DOCUMENT` in `app/models/task.py` and this function must
-    agree — a mismatch means jobs are enqueued and silently never run.
-    `tests/unit/test_worker_settings.py` asserts they do."""
+    strings `INGEST_DOCUMENT` and `EXTRACT_MEMORIES` in `app/models/task.py` and
+    these functions must agree — a mismatch means jobs are enqueued and silently
+    never run. `tests/unit/test_worker_settings.py` asserts they do."""
 
     redis_settings: RedisSettings = build_redis_settings(_settings)
     """Derived from the same `REDIS_URL` the API enqueues to. Deriving both from
