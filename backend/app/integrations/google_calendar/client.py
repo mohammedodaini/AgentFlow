@@ -10,13 +10,18 @@ that dict travel upward would put Google's data model into our API responses, ou
 prompts and our tests — and a change on their side would then be a change
 everywhere.
 
-Read-only, deliberately (M11)
------------------------------
-`list_events` and nothing else. The write scope is not requested and the write
-method is not written, because a create-event call with no approval record is
-precisely what M12 exists to prevent. Building the method now "ready for later"
-would mean the only thing between an agent and somebody's diary was that no code
-path happened to call it yet.
+Read-only at M11; writing arrived at M12
+----------------------------------------
+M11 shipped `list_events` and nothing else, and said why: a create-event method
+existing "ready for later" would mean the only thing between an agent and
+somebody's diary was that no code path happened to call it yet.
+
+M12 added `create_event`, and what changed is not this class — it is that
+`approvals` now exists. The single caller lives in `app/agents/calendar/tools.py`
+and is unreachable without a row a human decided on. The scope widened with it,
+from `calendar.readonly` to `calendar.events`, which means every account connected
+under M11 holds a read-only credential and must reconnect before a write succeeds
+(`post_json` turns Google's 403 into exactly that instruction).
 """
 
 from __future__ import annotations
@@ -92,6 +97,41 @@ class GoogleCalendarClient(BaseClient):
             # and in front of a model.
             if item.get("status") != "cancelled"
         ]
+
+    async def create_event(
+        self,
+        access_token: str,
+        *,
+        summary: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        description: str | None = None,
+    ) -> CalendarEvent:
+        """Put an event on the calendar. **M12, and only behind an approval.**
+
+        M11 shipped this class read-only and said why: a write method existing
+        "ready for later" would mean the only thing between an agent and somebody's
+        diary was that no code path happened to call it. What changed is not this
+        method — it is that `approvals` now exists, and the one caller
+        (`app/agents/calendar/tools.py`) cannot reach it without a row a human
+        decided on.
+
+        Times are sent as ISO-8601 *with* an offset, which is why the parameters
+        are `datetime` rather than `str`. Google accepts a naive string and
+        interprets it in the calendar's default timezone — so a meeting proposed at
+        09:00 UTC silently lands at 09:00 in Los Angeles, and the failure is a
+        person missing a meeting rather than an error anybody sees.
+        """
+        body: dict[str, Any] = {
+            "summary": summary,
+            "start": {"dateTime": starts_at.isoformat()},
+            "end": {"dateTime": ends_at.isoformat()},
+        }
+
+        if description:
+            body["description"] = description
+
+        return _as_event(await self.post_json(EVENTS_URL, access_token=access_token, body=body))
 
 
 def _as_event(item: dict[str, Any]) -> CalendarEvent:

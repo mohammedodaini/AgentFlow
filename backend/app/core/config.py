@@ -11,6 +11,7 @@ lets db, logging, api and the workers all read it safely.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from functools import lru_cache
 from typing import Literal, Self
 
@@ -267,6 +268,33 @@ class Settings(BaseSettings):
     answers — relevant passages get buried among marginal ones. Five chunks at
     400 tokens is 2k, so this leaves generous headroom while still bounding the
     bill if `top_k` is raised.
+    """
+
+    # --- Pricing and approvals (M12) ---
+    llm_input_cost_per_mtok: Decimal = Decimal(0)
+    llm_output_cost_per_mtok: Decimal = Decimal(0)
+    """What this deployment pays per million tokens, input and output.
+
+    **Zero by default, deliberately.** M9 refused to guess a rate because a guessed
+    figure "would appear in reports, get trusted, and be wrong"; M12 owns pricing
+    and keeps that refusal. The arithmetic ships; the numbers are the operator's to
+    supply from their own provider's pricing page.
+
+    A `cost_usd` of `0.000000` therefore means "nobody has told this system what it
+    pays", not "this run was free" — and that is a far better thing for a report to
+    say than a plausible number nobody can source.
+
+    `Decimal`, not `float`, all the way from configuration to column. One `float` in
+    the chain reintroduces exactly the rounding error `Numeric(10, 6)` was chosen to
+    avoid.
+    """
+
+    approval_ttl_hours: int = 24
+    """How long a pending approval stays actionable.
+
+    See `app/models/approval.py` for why expiry is a safety property rather than
+    tidiness: an approval queue with no expiry accumulates actions that get approved
+    eventually, by somebody who no longer remembers why they were proposed.
     """
 
     # --- Conversations & memory (M10) ---

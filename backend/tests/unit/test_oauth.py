@@ -246,9 +246,19 @@ def test_the_authorize_url_carries_the_state_and_redirect() -> None:
     assert query["redirect_uri"] == [REDIRECT]
 
 
-def test_only_read_access_to_the_calendar_is_requested() -> None:
-    """M11's scope boundary. A write scope requested now would sit unused until
-    M12 while every connected user had already granted an agent permission to
-    alter their diary."""
-    assert any(scope.endswith("calendar.readonly") for scope in SCOPES)
-    assert not any(scope.rstrip("/").endswith("auth/calendar") for scope in SCOPES)
+def test_the_calendar_scope_stops_short_of_managing_calendars() -> None:
+    """M12's scope boundary, replacing M11's.
+
+    M11 asserted `calendar.readonly` and said why: a write scope would have sat
+    unused for a milestone while every connected user had already granted an agent
+    permission to alter their diary. M12 built `approvals`, which is what earns the
+    write — so this test changed *because the reason it existed was satisfied*, not
+    because it became inconvenient.
+
+    The remaining line is the boundary that still holds: `calendar.events` covers
+    reading and writing events and stops short of `calendar`, which also manages
+    calendars themselves — creating them, deleting them, changing sharing. The agent
+    has no use for that, and an unused scope is only ever a liability.
+    """
+    assert any(scope.endswith("auth/calendar.events") for scope in SCOPES)
+    assert not any(scope.endswith("auth/calendar") for scope in SCOPES)

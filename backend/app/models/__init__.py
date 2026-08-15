@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from app.models.agent_run import AgentRun, RunStatus
 from app.models.agent_step import AgentStep
+from app.models.approval import Approval, ApprovalStatus
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 from app.models.conversation import Conversation
 from app.models.document import Document, DocumentSource, DocumentStatus
@@ -34,6 +35,8 @@ __all__ = [
     "INGEST_DOCUMENT",
     "AgentRun",
     "AgentStep",
+    "Approval",
+    "ApprovalStatus",
     "Base",
     "Conversation",
     "Document",

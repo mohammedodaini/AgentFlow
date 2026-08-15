@@ -63,73 +63,40 @@ half-milestone and call it shipped.
   the work uncommitted, append a short note under `## Blocked on` saying exactly
   where you stopped, and exit. The next run reads it.
 
-## Where the project is
+## Where the project is — STOP AND READ
 
-`CLAUDE.md` is authoritative — read it, not this paragraph, for the current
-position. As of the last update: **M1–M11 shipped**, next is **M12**.
+`CLAUDE.md` is authoritative. As of the last update: **M1–M12 shipped.**
 
-The working mode is **autonomous through M12**, at the user's explicit
-instruction: *"let us do that and just finsh m6-m12 without mentor mode"*.
-Mentor mode resumes at M13.
+**The autonomous run is over.** The user's instruction was *"let us do that and
+just finsh m6-m12 without mentor mode"*. M12 shipped on 2026-08-16, so that
+instruction is spent — it did not license M13.
 
-## M12 — human-in-the-loop approvals
+**If you were started by `scripts/continue-agentflow.sh` with no further
+instruction, the correct action is to build nothing.** Append a note under
+`## Blocked on` saying the autonomous run is complete and mentor mode has resumed,
+and exit without committing. That is not a failure; it is the schedule outliving
+its mandate, and continuing would break the working agreement at the top of
+`CLAUDE.md`.
 
-`docs/roadmap.md`, `docs/agents.md` and `docs/database.md` are the specification.
-This is the **last milestone of the autonomous run** — mentor mode resumes at M13.
-In outline:
+M13 (the Next.js frontend) is a **mentor-mode** milestone: explain the concept,
+build together, quiz, exercise, review, refactor. It needs the user present by
+definition.
 
-- `approvals`: `agent_run_id FK, organization_id FK, requested_action jsonb,
-  status (pending|approved|rejected|expired), decided_by FK users, decided_at`.
-- A LangGraph **interrupt**, so a graph can stop mid-run and resume later.
-- Google Calendar **write** and an email draft, both behind an approval. M11
-  deliberately requested only `calendar.readonly`; the write scope is earned here,
-  which means the connect flow's scope list changes and every already-connected
-  user has to re-consent. Say so plainly in the milestone note.
+## What is genuinely outstanding
 
-**The key risk, named in the roadmap: an approval that is only an in-memory
-interrupt does not survive a restart.** It must be a **row** as well. A deploy, a
-crash or a scale-down happens between "please approve this" and the click, and the
-work must still be there afterwards — otherwise the first restart silently drops
-every pending action, and nobody finds out until a customer asks why the email
-they approved never went.
+Nothing is half-built. The tree is 104 implemented modules to 28 stubs, and every
+stub belongs to M14 (five more integrations), M15 (the multi-agent packages) or
+M16 (rate limiting, metrics, the audit log) — plus `app/agents/email/`, which M12
+deliberately left alone because there is no Gmail integration to draft into.
 
-**This is where two things from M9 finally get used**, and both are already in the
-schema: `agent_runs.checkpoint` (LangGraph's serialised state — ADR-0012 explains
-why it is stored and never published) and `RunStatus.PAUSED_FOR_APPROVAL`. If
-either turns out to be the wrong shape, say so and change it; they were written
-before anything needed them.
+Two things wait on the user rather than on code:
 
-**It also owns pricing.** `agent_runs.cost_usd` is `Decimal(0)` everywhere,
-deliberately, because a guessed rate would appear in reports and be trusted. M12 is
-where real per-token pricing arrives — and where the number must be derived from
-recorded token counts rather than estimated.
-
-**Three things worth designing rather than discovering:**
-
-- **An approval is a decision about a *specific* action, not a general
-  permission.** Store the full `requested_action` — the actual email body, the
-  actual event — so what was approved is what executes. Re-deriving the action at
-  execution time means a user approved a summary and something else ran.
-- **Approving twice must not execute twice.** The click arrives from a browser, and
-  browsers retry. The status transition is the idempotency key.
-- **Rejection and expiry are normal outcomes**, not errors. A run that ends
-  `cancelled` because nobody approved it in time is working correctly.
-
-**Before you finish: `make eval` must still pass.**
-
-**What you can and cannot verify without a key:** the approval rows, the
-interrupt-and-resume across a process restart, the idempotency, the expiry sweep and
-the tenancy — all testable offline. Whether a *model* asks for approval at the right
-moments is not testable here, because the offline provider does not choose tools at
-all (ADR-0012 is explicit that this is not a tool-calling ReAct loop). Say so
-plainly, and gate the side effect in code rather than relying on the model to ask.
-
-## After M12
-
-**Mentor mode resumes at M13** (`CLAUDE.md`, "The mentorship contract"). Do not
-build M13 autonomously. There are also two long-deferred items to raise when the
-user next engages directly: the architecture quiz and the bad-`POST /documents`
-exercise, both listed under "Still pending" in `CLAUDE.md`.
+- **The architecture quiz and the bad-`POST /documents` exercise**, carried
+  unanswered across six sessions. Listed under "Still pending" in `CLAUDE.md`.
+- **API keys.** Every "not verified" note in the milestone docs traces to their
+  absence: `refusal_accuracy` is 0.000 because the offline provider cannot refuse,
+  retrieval is lexical rather than semantic, and Google is exercised against an
+  in-memory authorization server rather than the real consent screen.
 
 ## House style — non-negotiable, and the reason this codebase reads as it does
 

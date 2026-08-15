@@ -21,17 +21,28 @@ from __future__ import annotations
 
 import uuid
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents import RAG_AGENT
+from app.agents import CALENDAR_AGENT, RAG_AGENT
+from app.agents.calendar.graph import (
+    CalendarState,
+    build_execute_graph,
+    build_propose_graph,
+    checkpoint_of,
+    initial_state,
+    state_from_checkpoint,
+)
+from app.agents.calendar.tools import build_create_event
 from app.agents.history import HistoryTurn
 from app.agents.rag.graph import build_graph
 from app.core.config import Settings
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import AppError, ConflictError, NotFoundError
+from app.integrations import OAuthRegistry
 from app.llm.base import LLMError, LLMProvider
+from app.llm.pricing import cost_of
 from app.models.agent_run import AgentRun, RunStatus
 from app.rag.embeddings import EmbeddingProvider
 from app.repositories.agent_run_repository import AgentRunRepository
@@ -151,10 +162,12 @@ class AgentService:
             RunStatus.SUCCEEDED,
             output={"answer": state.get("answer", ""), "citations": state.get("citations", [])},
             total_tokens=total_tokens,
-            # Zero until M12, which owns pricing. A made-up figure here would be
-            # worse than none: it would appear in reports, get trusted, and be
-            # wrong by whatever margin the guessed rate was off.
-            cost_usd=Decimal(0),
+            # M12 owns pricing, and this is it: a real figure derived from the token
+            # counts the steps recorded, at whatever rates the operator configured.
+            # With no rates configured it is still `0.000000` — which now means
+            # "nobody has told this system what it pays" rather than "we have not
+            # built this yet", and `app/llm/pricing.py` says so.
+            cost_usd=self._cost(usage),
         )
         await self._session.commit()
 
@@ -171,6 +184,136 @@ class AgentService:
         # was never loaded, so the caller's first `run.steps` is a lazy load, and
         # a lazy load under asyncio raises `MissingGreenlet` — from inside
         # response serialisation, mentioning none of our code.
+        return await self.get_run(organization_id, run_id)
+
+    async def run_calendar_agent(
+        self,
+        organization_id: uuid.UUID,
+        instruction: str,
+        *,
+        user_id: uuid.UUID | None = None,
+    ) -> tuple[AgentRun, dict[str, Any] | None]:
+        """Propose a calendar action and stop. **Never executes anything.**
+
+        Returns the run and the proposed action, or `(run, None)` when the
+        instruction could not be understood. The caller — `ApprovalService` — turns
+        a proposed action into the row a human decides on.
+
+        The split matters more than it looks. This method is the only way to reach
+        the calendar agent, and it *cannot* create an event: the executor is built on
+        the resume path and nowhere else. So "did the agent write to somebody's
+        calendar without permission?" is answerable by reading one function rather
+        than by auditing a branch.
+        """
+        payload: dict[str, Any] = {"instruction": instruction}
+        run = await self._runs.create(
+            organization_id=organization_id,
+            agent_name=CALENDAR_AGENT,
+            payload=payload,
+            triggered_by=user_id,
+        )
+        # Committed before the graph starts, as at M9: a row that only appears on
+        # success cannot record a crash.
+        await self._session.commit()
+
+        run_id = run.id
+        steps: list[dict[str, Any]] = []
+        log = logger.bind(run_id=str(run_id), organization_id=str(organization_id))
+
+        try:
+            # `ainvoke` is typed as returning the framework's loose state union, so
+            # the cast is what lets the strict helpers below keep their real
+            # signatures rather than widening to `dict[str, Any]` and losing the
+            # checkpoint contract at exactly the boundary that depends on it.
+            state = cast(
+                "CalendarState",
+                await build_propose_graph(steps.append).ainvoke(
+                    initial_state(
+                        instruction=instruction, organization_id=organization_id, user_id=user_id
+                    )
+                ),
+            )
+        except Exception:
+            log.exception("agent.calendar_errored")
+            await self._finish_failed(run_id, steps, "The agent failed unexpectedly. Try again.")
+            raise
+
+        action = state.get("proposed_action")
+        run = await self._reload(run_id)
+        await self._runs.add_steps(run, steps)
+
+        if action is None:
+            # Nothing to approve. The run is *finished*, not paused — an approval
+            # asking somebody to permit nothing is worse than no approval at all.
+            await self._runs.finish(
+                run,
+                RunStatus.SUCCEEDED,
+                output={"refusal": state.get("refusal", ""), "proposed": False},
+            )
+            await self._session.commit()
+            log.info("agent.calendar_nothing_to_propose")
+            return await self.get_run(organization_id, run_id), None
+
+        # The pause. `checkpoint` and `PAUSED_FOR_APPROVAL` both arrived at M9 and
+        # have been unwritten until now; this is what they were for.
+        run.status = RunStatus.PAUSED_FOR_APPROVAL
+        run.checkpoint = checkpoint_of(state)
+        run.output = {"proposed": True, "summary": state.get("summary", "")}
+        await self._session.flush()
+        await self._session.commit()
+
+        log.info("agent.calendar_awaiting_approval", summary=state.get("summary", ""))
+        return await self.get_run(organization_id, run_id), action
+
+    async def resume_calendar_run(
+        self, organization_id: uuid.UUID, run_id: uuid.UUID, registry: OAuthRegistry
+    ) -> AgentRun:
+        """Execute the action a human approved. The only path to a side effect.
+
+        Reads its state from `agent_runs.checkpoint` rather than from memory, which
+        is the entire point: the process that proposed this is very likely gone — a
+        deploy, a restart, a weekend — and the run has to be resumable by whichever
+        process happens to be alive when somebody clicks.
+
+        **The tenant comes from the caller, never from the checkpoint.** The stored
+        state carries an `organization_id` and it is deliberately not trusted: a
+        checkpoint that could nominate its own tenant would be an injection surface
+        that survives restarts.
+        """
+        run = await self.get_run(organization_id, run_id)
+
+        if run.status is not RunStatus.PAUSED_FOR_APPROVAL or run.checkpoint is None:
+            # Guards the double-execute a browser will eventually attempt. The run's
+            # status is the idempotency key: once it has moved on, there is nothing
+            # here left to run.
+            message = "This run is not waiting to be resumed."
+            raise ConflictError(message)
+
+        steps: list[dict[str, Any]] = []
+        state = state_from_checkpoint(run.checkpoint)
+        executor = build_create_event(self._session, registry, self._settings, organization_id)
+        log = logger.bind(run_id=str(run_id), organization_id=str(organization_id))
+
+        try:
+            final = await build_execute_graph(executor, steps.append).ainvoke(state)
+        except AppError as error:
+            # A revoked credential, a missing integration, Google refusing the write.
+            # The run fails and says why — and the approval stays decided, because a
+            # human did approve it. What failed was the execution.
+            log.warning("agent.calendar_execute_failed", reason=error.code)
+            await self._finish_failed(run_id, steps, error.message)
+            raise
+
+        run = await self._reload(run_id)
+        await self._runs.add_steps(run, steps)
+        # The checkpoint is cleared once used. Keeping it would leave a
+        # resumable-looking run behind a terminal status, and the next person to read
+        # the column would reasonably wonder whether it still meant something.
+        run.checkpoint = None
+        await self._runs.finish(run, RunStatus.SUCCEEDED, output=dict(final.get("result", {})))
+        await self._session.commit()
+
+        log.info("agent.calendar_executed")
         return await self.get_run(organization_id, run_id)
 
     async def get_run(self, organization_id: uuid.UUID, run_id: uuid.UUID) -> AgentRun:
@@ -203,6 +346,37 @@ class AgentService:
             ),
             await self._runs.count_for_organization(organization_id, status=status),
         )
+
+    def _cost(self, usage: dict[str, int]) -> Decimal:
+        """What this run cost, at the configured rates.
+
+        Derived from counts that were *measured* — the steps recorded them — rather
+        than estimated from character lengths or model defaults. That distinction is
+        the reason the number is worth storing at all.
+        """
+        return cost_of(
+            input_tokens=usage.get("input", 0),
+            output_tokens=usage.get("output", 0),
+            input_rate=self._settings.llm_input_cost_per_mtok,
+            output_rate=self._settings.llm_output_cost_per_mtok,
+        )
+
+    async def _reload(self, run_id: uuid.UUID) -> AgentRun:
+        """Re-fetch a run after a commit expired it.
+
+        `commit()` expires every ORM object in the session, so the instance held
+        across one is unusable without a refresh — the same fact that made
+        `_finish_failed` take an id rather than an object at M9. Reloading through
+        `session.get` rather than the repository because the caller wants the row,
+        not its eagerly-loaded trace.
+        """
+        run = await self._session.get(AgentRun, run_id)
+
+        if run is None:  # pragma: no cover — committed moments earlier
+            message = "Agent run not found."
+            raise NotFoundError(message)
+
+        return run
 
     async def _finish_failed(
         self, run_id: uuid.UUID, steps: list[dict[str, Any]], message: str

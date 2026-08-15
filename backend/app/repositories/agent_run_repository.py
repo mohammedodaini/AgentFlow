@@ -64,15 +64,30 @@ class AgentRunRepository:
     async def add_steps(self, run: AgentRun, steps: list[dict[str, Any]]) -> None:
         """Append the trace, numbering the steps in execution order.
 
-        `step_index` is assigned here from list position rather than by each
-        node, because a node does not know how many ran before it — and a
-        counter threaded through graph state would be one more thing a
-        conditional edge could get wrong.
+        `step_index` is assigned here from list position rather than by each node,
+        because a node does not know how many ran before it — and a counter threaded
+        through graph state would be one more thing a conditional edge could get
+        wrong.
+
+        **Numbering continues from what is already stored**, which M9 did not do and
+        M12 needed. A run that pauses for approval and resumes days later calls this
+        *twice*: once with the propose steps, once with the execute step. Restarting
+        at zero collided with the existing index 0 and raised a
+        `UniqueViolationError` on `uq_agent_steps_agent_run_id` — caught by a test,
+        and worth stating plainly, because the assumption "one batch per run" was
+        invisible until a run had two.
         """
+        if not steps:
+            return
+
+        offset = await self._session.scalar(
+            select(func.count(AgentStep.id)).where(AgentStep.agent_run_id == run.id)
+        )
+
         self._session.add_all(
             AgentStep(
                 agent_run_id=run.id,
-                step_index=index,
+                step_index=(offset or 0) + index,
                 node_name=step["node_name"],
                 tool_name=step.get("tool_name"),
                 tool_input=step.get("tool_input"),

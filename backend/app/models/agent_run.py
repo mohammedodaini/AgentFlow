@@ -135,17 +135,35 @@ class AgentRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     guesswork the moment a prompt changes.
     """
 
-    output: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
-    """The answer and its citations. Null until the run reaches a terminal
-    state — which is what distinguishes "still working" from "finished with
-    nothing to say"."""
+    output: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    """The answer and its citations. Null until the run reaches a terminal state —
+    which is what distinguishes "still working" from "finished with nothing to say".
+
+    `none_as_null=True` for the reason spelled out on `checkpoint` below: without it,
+    assigning Python `None` writes JSON `null`, and the distinction this column is
+    *for* stops being expressible in SQL.
+    """
 
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     """Why it failed, written for the person who asked rather than the person
     who deployed it. The same rule as `documents.error` (M5)."""
 
-    checkpoint: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
-    """LangGraph's serialised state.
+    checkpoint: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+    """The serialised state a paused run resumes from.
+
+    **`none_as_null=True`, and M12 found out why the hard way.** Without it,
+    assigning Python `None` to a JSONB column stores the JSON value `null` rather
+    than SQL NULL. SQLAlchemy reads both back as `None`, so every ORM assertion
+    passes — including the test asserting a cancelled run's checkpoint was cleared.
+    Only looking at Postgres directly showed `checkpoint::text = 'null'` with
+    `checkpoint IS NULL` false.
+
+    That matters here more than almost anywhere: NULL is what "there is nothing to
+    resume" *means*. A sweeper or an operator asking `WHERE checkpoint IS NOT NULL`
+    for stuck runs would have found every cancelled run in the system.
+
 
     On the run row rather than in a separate checkpoint table, because at one
     checkpoint per run a join costs more than it saves. When M12's approvals

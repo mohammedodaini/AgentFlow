@@ -41,16 +41,27 @@ TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 — a URL, not a
 USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 
 SCOPES = [
-    "https://www.googleapis.com/auth/calendar.readonly",
+    "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/userinfo.email",
 ]
-"""Read-only calendar, plus the address of the account that granted it.
+"""Read *and write* events, plus the address of the account that granted it.
 
-`calendar.readonly` rather than `calendar`, and that is M11's whole scope
-boundary: a write scope requested now would sit unused until M12 while every
-connected user had already granted an agent permission to alter their diary. The
-approval machinery is what earns that scope, so it is requested in the milestone
-that builds it.
+M11 requested `calendar.readonly` deliberately, and said why: a write scope would
+have sat unused for a milestone while every connected user had already granted an
+agent permission to alter their diary. **M12 is the milestone that earns it** —
+nothing here can write without an `approvals` row a human decided on.
+
+`calendar.events` rather than the broader `calendar`: it covers reading and
+writing events, and stops short of managing calendars themselves (creating them,
+deleting them, changing sharing). The agent has no use for that, and a scope
+nobody uses is only ever a liability.
+
+**Widening a scope is not free, and it is not silent.** Google issues tokens for
+the scopes granted at consent time, so every account connected under M11 holds a
+read-only credential and will keep holding one. Those integrations keep working
+for reads and will fail on a write — which is why `Integration.scopes` records
+what was *granted* rather than what was asked for, and why the milestone note says
+plainly that existing users must reconnect.
 
 `userinfo.email` earns its place by answering "which account is this?" — without
 it a user with a personal and a work Google account cannot tell which one they

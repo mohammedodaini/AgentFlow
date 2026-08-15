@@ -158,7 +158,11 @@ omit = [
     # package now holds implemented modules (state.py, rag/) beside seven
     # still-stubbed agents, and a directory glob would have hidden the
     # implemented ones from the gate. The same correction M5 made for `rag/`.
-    "app/agents/calendar/*.py",
+    # M12 delisted `app/agents/calendar/*` and the five approval modules below.
+    # `app/agents/email/*` stays: the roadmap pairs an email draft with the calendar
+    # write, and M12 shipped only the calendar one — there is no Gmail integration
+    # to draft into, and building one is M14's work. Said plainly in the milestone
+    # note rather than quietly half-done.
     "app/agents/email/*.py",
     "app/agents/evaluation/*.py",
     "app/agents/memory/*.py",
@@ -186,13 +190,9 @@ omit = [
     "app/integrations/stripe/*.py",
     "app/workers/tasks/agent_execution.py",
     "app/workers/tasks/email_sync.py",
-    "app/api/v1/routes/approvals.py",
     "app/middleware/rate_limit.py",
     "app/monitoring/metrics.py",
-    "app/models/approval.py",
     "app/models/event.py",
-    "app/schemas/approval.py",
-    "app/services/approval_service.py",
 ]
 
 [tool.coverage.report]

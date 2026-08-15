@@ -15,6 +15,15 @@ from __future__ import annotations
 RAG_AGENT = "rag"
 """Answers questions over the organization's own documents, with citations."""
 
-AGENT_NAMES = frozenset({RAG_AGENT})
+CALENDAR_AGENT = "calendar"
+"""M12: proposes calendar changes, and executes them only after a human approves.
+
+The second agent, and the first with a side effect anyone outside this system can
+see. It arrived in the milestone that built `approvals` rather than in M11, which
+connected the calendar — because a write with nothing to authorise it is precisely
+what the approval machinery exists to prevent.
+"""
+
+AGENT_NAMES = frozenset({RAG_AGENT, CALENDAR_AGENT})
 """Every agent this deployment can run. Validated at the API boundary, so an
 unknown name is a 422 rather than a run row that exists and never executes."""

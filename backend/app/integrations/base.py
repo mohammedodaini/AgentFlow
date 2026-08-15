@@ -193,3 +193,47 @@ class BaseClient:
 
         payload: dict[str, Any] = response.json()
         return payload
+
+    async def post_json(
+        self, url: str, *, access_token: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        """POST and parse JSON, classifying failures exactly as `get_json` does.
+
+        A separate method rather than a `method=` parameter, because the two are
+        not interchangeable at this layer: a GET is safe to retry and a POST is
+        not. Anything that eventually adds retries must be able to tell them
+        apart, and a shared method with a verb argument makes that distinction
+        invisible at the call site.
+        """
+        async with httpx.AsyncClient(timeout=self._timeout, transport=self._transport) as client:
+            try:
+                response = await client.post(
+                    url, json=body, headers={"Authorization": f"Bearer {access_token}"}
+                )
+            except httpx.HTTPError as error:
+                message = f"Request to {url} failed: {error}"
+                raise OAuthError(message) from error
+
+        if response.status_code == httpx.codes.UNAUTHORIZED:
+            message = "The provider rejected our credential."
+            raise OAuthRevokedError(message)
+
+        if response.status_code == httpx.codes.FORBIDDEN:
+            # Distinct from 401, and the distinction is the whole reason M12
+            # widened the scope. 401 means "this credential is not valid"; 403
+            # here means "it is valid and does not permit this" — which is exactly
+            # what an account connected under M11's read-only scope gets when it
+            # tries to write. Telling a user to reconnect is actionable; telling
+            # them the request failed is not.
+            message = (
+                "This Google account was connected without permission to change "
+                "the calendar. Reconnect it to grant write access."
+            )
+            raise OAuthRevokedError(message)
+
+        if response.is_error:
+            message = f"Request to {url} returned {response.status_code}."
+            raise OAuthError(message)
+
+        payload: dict[str, Any] = response.json()
+        return payload

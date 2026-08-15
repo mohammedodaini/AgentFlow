@@ -34,7 +34,25 @@ APP_ROOT = BACKEND_ROOT / "app"
 DEFINITIONS = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 
 MINIMUM_EXPECTED_IMPLEMENTED = 30
-MINIMUM_EXPECTED_STUBS = 30
+
+MINIMUM_EXPECTED_STUBS = 20
+"""Lowered from 30 at M12, and the reason matters more than the number.
+
+These bounds exist to catch a *broken classifier* — one that suddenly called
+everything implemented would make the two real tests above pass while measuring
+nothing. They were never meant to describe the roadmap, and the docstring below
+says so.
+
+They tracked it anyway, because when they were written most of the project was
+scaffolding. Twelve of sixteen milestones later the tree is 104 implemented modules
+to 28 stubs, and the old floor of 30 had started failing on *success*. Moving it is
+the honest response; deleting the assertion would throw away the only thing guarding
+the classifier.
+
+What remains unbuilt is M14 (five integrations), M15 (the multi-agent packages) and
+M16 (rate limiting, metrics, the audit log) — plus `app/agents/email/`, which M12
+deliberately left alone.
+"""
 
 DEFINITION_FREE_BUT_IMPLEMENTED = frozenset(
     {
