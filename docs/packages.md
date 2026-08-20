@@ -67,8 +67,23 @@ added at its milestone. "Popularity" = rough industry adoption for this role.
 | Package | Why | Req | Alternatives | Popularity |
 |---|---|---|---|---|
 | httpx | Async HTTP client — one client for all integrations | ✅ | aiohttp, requests (sync) | Standard modern choice |
-| google-api-python-client + google-auth | Gmail/Calendar/Drive official SDKs | 🔶 | raw REST via httpx | Official |
-| slack-sdk, PyGithub, stripe, notion-client | Official/canonical SDKs per product | 🔶 | raw REST | Official |
+| google-api-python-client + google-auth | Gmail/Calendar/Drive official SDKs | ❌ | raw REST via httpx | Official |
+| slack-sdk, PyGithub, stripe, notion-client | Official/canonical SDKs per product | ❌ | raw REST | Official |
+
+**M14 connected five providers and added no dependency at all**, which is why the
+two rows above turned from 🔶 to ❌. Each SDK would be a package to keep current,
+a release cadence to track and a transitive tree to audit — in exchange for one
+or two endpoints. And the boundary rule this codebase already enforces (provider
+types never leak upward, `app/integrations/base.py`) means an SDK's models get
+translated into ours at the door regardless, so the abstraction they offer is one
+we immediately throw away.
+
+What they would genuinely buy is retries, pagination helpers and knowledge of each
+API's quirks. M14 needed none of the first two, and the quirks turned out to be
+the *interesting* part — Slack answering `{"ok": false}` with HTTP 200, GitHub
+serving form-encoded unless asked for JSON — each worth understanding and writing
+down rather than importing. Revisit this if a provider ever needs webhook
+signature verification, which is the one thing worth not hand-rolling.
 
 ## Observability
 | Package | Why | Req | Alternatives | Popularity |

@@ -77,9 +77,12 @@ check("trace shows the graph nodes", trace.includes("retrieve") && trace.include
 check("checkpoint is never published", !trace.includes("checkpoint"));
 
 // --- propose a calendar action, then reject it ---
+// M14 put a second proposal form on this page, so the selectors are scoped to a
+// card rather than to `input[name="instruction"]` — which now matches two.
 await page.goto("http://localhost:3000/approvals");
-await page.fill('input[name="instruction"]', "Schedule a design review on 2026-09-10 09:00");
-await page.click('button:has-text("Draft it")');
+const calendarForm = page.locator('div:has(> h2:text-is("Draft a calendar change"))');
+await calendarForm.locator('input[name="instruction"]').fill("Schedule a design review on 2026-09-10 09:00");
+await calendarForm.locator('button:has-text("Draft it")').click();
 await page.waitForSelector("text=/Create a calendar event/", { timeout: 30000 });
 check("the proposal appears in the inbox", (await page.textContent("body")).includes("design review"));
 
@@ -88,6 +91,62 @@ await page.click('button:has-text("Reject")');
 await page.waitForTimeout(2500);
 const afterReject = await page.textContent("body");
 check("rejecting clears it from the inbox", !afterReject.includes("2026-09-10") && !afterReject.includes("10 September"));
+
+// --- M14: the email agent drafts, and sends nothing ---
+const emailForm = page.locator('div:has(> h2:text-is("Draft an email"))');
+await emailForm.locator('input[name="instruction"]').fill(
+  "Email ada@agentflow.dev about the board pack saying the numbers are final.",
+);
+await emailForm.locator('button:has-text("Draft it")').click();
+await page.waitForSelector("text=/Send an email to/", { timeout: 30000 });
+const inbox = await page.textContent("body");
+check("the email proposal reaches the inbox", inbox.includes("ada@agentflow.dev"));
+// The body is what actually gets sent, so it is what the person deciding must
+// see — the summary alone would be a second account of the message.
+check("the exact message is shown for review", inbox.includes("the numbers are final."));
+
+await page.click('button:has-text("Reject")');
+await page.waitForTimeout(2500);
+check(
+  "rejecting the email clears it too",
+  !(await page.textContent("body")).includes("the numbers are final."),
+);
+
+// --- M14: integrations ---
+await page.goto("http://localhost:3000/integrations");
+const integrations = await page.textContent("body");
+check("every configured provider is offered", ["Gmail", "Google Calendar", "Slack", "Notion", "GitHub", "Stripe"].every((name) => integrations.includes(name)));
+// Google Drive is in the Provider enum and deliberately unimplemented. A button
+// leading to a 404 is worse than no button.
+check("Google Drive is not offered", !integrations.includes("Google Drive"));
+check("no scope string leaks a token", !/ya29\.|xoxb-|sk_live/.test(integrations));
+
+// The offline authorization server lives at a `.test` domain, which RFC 2606
+// reserves and no DNS resolves — deliberately, so a stray offline URL in a real
+// deployment fails loudly instead of quietly reaching somebody's server. That
+// also means the navigation cannot *complete* here, so the assertion is on the
+// request the browser attempted rather than on `page.url()`, which never changes.
+let authorizeRequest = null;
+page.on("request", (request) => {
+  if (request.url().includes("offline.agentflow.test")) {
+    authorizeRequest = request.url();
+  }
+});
+
+await page.locator("li", { hasText: "Slack" }).locator('button:has-text("Connect")').click();
+await page.waitForTimeout(4000);
+check(
+  "connecting leaves our origin for an authorization server",
+  authorizeRequest !== null,
+  `attempted: ${authorizeRequest}`,
+);
+// Without an unguessable, single-use state carrying the tenant binding, an
+// attacker's crafted callback URL connects *their* account to a victim's
+// organization (ADR-0014). It is the only credential the callback can carry.
+check(
+  "the consent URL carries a state parameter",
+  authorizeRequest !== null && authorizeRequest.includes("state="),
+);
 
 // --- upload a document ---
 await page.goto("http://localhost:3000/documents");

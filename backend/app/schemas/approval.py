@@ -41,6 +41,28 @@ class CalendarActionRequest(BaseModel):
     )
 
 
+class EmailActionRequest(BaseModel):
+    """What to ask the email agent for.
+
+    Named for the *proposal*, not the send, for the same reason
+    `CalendarActionRequest` is: this endpoint cannot send an email, and a schema
+    called `SendEmailRequest` would describe an operation the route does not
+    perform.
+    """
+
+    instruction: str = Field(
+        min_length=1,
+        max_length=2000,
+        description=(
+            "What to write, in the form: email alice@example.com about the Q3 "
+            "numbers saying the report is ready."
+        ),
+    )
+    """Longer than the calendar's limit, because this one carries a message body
+    rather than a date. Still bounded: it becomes a JSONB action and, eventually,
+    a prompt."""
+
+
 class ApprovalRead(APIModel):
     """One request awaiting — or having received — a human decision."""
 

@@ -26,6 +26,13 @@ whole grant back on every refresh overwrites the long-lived refresh token with
 NULL, and the integration works perfectly until the access token expires an hour
 later. Making that the *default* behaviour of the double means any code path that
 gets it wrong fails immediately rather than in an hour.
+
+**Some credentials never expire at all** (`perpetual=True`, added at M14). Slack,
+Notion and GitHub issue a token with no `expires_in` and no refresh token, and
+under M11's rules the first use of one marked the integration REVOKED — see
+`OAuthToken.needs_refresh`. That bug was invisible offline because this double
+always behaved like Google. A test double that can only produce the shape the code
+already handles is a test double that certifies the bug.
 """
 
 from __future__ import annotations
@@ -71,11 +78,17 @@ class OfflineOAuthProvider:
         *,
         account: str = DEFAULT_ACCOUNT,
         expires_in: int = DEFAULT_EXPIRES_IN,
+        perpetual: bool = False,
     ) -> None:
         self._provider_name = provider_name
         self._scopes = scopes
         self._account = account
         self._expires_in = expires_in
+        # Slack, Notion and GitHub, whose tokens have no expiry and no refresh
+        # token. The registry sets this per provider so that running offline
+        # reproduces the credential *shape* each real provider issues, not just
+        # the flow.
+        self._perpetual = perpetual
         self._unused_codes: set[str] = set()
         self._live_refresh_tokens: set[str] = set()
 
@@ -119,6 +132,18 @@ class OfflineOAuthProvider:
             raise OAuthRevokedError(message)
 
         self._unused_codes.discard(code)
+
+        if self._perpetual:
+            # No expiry and no refresh token — the shape a Slack bot token, a
+            # Notion workspace token and a GitHub OAuth App token all have.
+            return TokenGrant(
+                access_token=f"{ACCESS_PREFIX}{secrets.token_urlsafe(16)}",
+                refresh_token=None,
+                expires_at=None,
+                scopes=list(self._scopes),
+                external_account_id=self._account,
+            )
+
         refresh_token = f"{REFRESH_PREFIX}{secrets.token_urlsafe(16)}"
         self._live_refresh_tokens.add(refresh_token)
 
@@ -131,7 +156,16 @@ class OfflineOAuthProvider:
         )
 
     async def refresh(self, refresh_token: str) -> TokenGrant:
-        """A new access token — and, like Google, no new refresh token."""
+        """A new access token — and, like Google, no new refresh token.
+
+        A perpetual provider refuses outright, as Notion's does: there is no
+        refresh grant to attempt, so anything reaching here is a caller that
+        believed a permanent credential had expired.
+        """
+        if self._perpetual:
+            message = f"{self._provider_name} credentials cannot be refreshed."
+            raise OAuthRevokedError(message)
+
         if refresh_token not in self._live_refresh_tokens:
             message = "invalid_grant: the refresh token has been revoked."
             raise OAuthRevokedError(message)

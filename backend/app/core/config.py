@@ -336,8 +336,13 @@ class Settings(BaseSettings):
     `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
     """
 
-    oauth_provider: Literal["google", "offline"] = "offline"
+    oauth_provider: Literal["live", "offline"] = "offline"
     """Which `OAuthProvider` implementations to build.
+
+    Renamed from `google` at M14, when it stopped being about Google: this one
+    switch now decides whether Gmail, Google Calendar, Slack, Notion, GitHub and
+    Stripe are real or in-memory. A value named after one of the six would have to
+    be explained every time somebody configured Slack.
 
     Defaults to `offline` for the same reason `embedding_provider` and
     `llm_provider` do: a fresh clone must run its whole test suite with no
@@ -356,15 +361,56 @@ class Settings(BaseSettings):
     google_client_secret: SecretStr = SecretStr("")
     """Google OAuth client credentials.
 
+    One Google Cloud OAuth client covers **both** Gmail and Google Calendar: they
+    are two products of one project, differing only in the scopes requested.
+
     Empty by default, and *not* refused in production. A deployment that never
     connects Google is a perfectly valid deployment — unlike the placeholder
     signing key or the offline embedder, an absent integration degrades nothing.
-    `IntegrationService` refuses at connect time instead, where the error can
-    name the missing variable to the person trying to use it.
+    An unconfigured provider is simply not registered (see
+    `app/integrations/__init__.py`), so asking to connect it is a 404 naming the
+    two variables to set, raised where somebody is present to read it.
+    """
+
+    slack_client_id: str = ""
+    slack_client_secret: SecretStr = SecretStr("")
+    """Slack app credentials, from the app's Basic Information page.
+
+    Slack calls the pair "Client ID" and "Client Secret", which is unusually
+    unambiguous — its *signing* secret and its verification token are different
+    strings for different features, and neither belongs here.
+    """
+
+    notion_client_id: str = ""
+    notion_client_secret: SecretStr = SecretStr("")
+    """Notion integration credentials, from the integration's settings page.
+
+    Only a **public** Notion integration has these. An internal integration is
+    authorized by pasting a token, has no OAuth flow at all, and cannot be
+    connected by this application.
+    """
+
+    github_client_id: str = ""
+    github_client_secret: SecretStr = SecretStr("")
+    """GitHub OAuth App credentials.
+
+    An *OAuth App*, not a GitHub App — they are two different products with two
+    different flows, and a GitHub App's installation-based authorization does not
+    fit the `OAuthProvider` seam.
+    """
+
+    stripe_client_id: str = ""
+    stripe_client_secret: SecretStr = SecretStr("")
+    """Stripe Connect credentials, and the pair most easily got wrong.
+
+    `STRIPE_CLIENT_ID` is the `ca_…` **Connect application id** from the Connect
+    settings page — not a publishable key, not a secret key. `STRIPE_CLIENT_SECRET`
+    is the platform's own `sk_…` secret key, which authenticates the token
+    exchange. Three `stripe`-looking strings, one correct assignment.
     """
 
     oauth_redirect_base_url: str = "http://localhost:8000"
-    """The public origin Google redirects back to.
+    """The public origin each provider redirects back to.
 
     Configuration rather than derivation from the request, because a redirect URI
     must match Google's registered value *exactly* — and deriving it from `Host`
@@ -468,7 +514,7 @@ class Settings(BaseSettings):
             message = (
                 "OAUTH_PROVIDER is 'offline' in production. That provider is an "
                 "in-memory authorization server for development; it issues tokens "
-                "Google never granted. Set OAUTH_PROVIDER=google."
+                "no provider ever granted. Set OAUTH_PROVIDER=live."
             )
             raise ValueError(message)
 

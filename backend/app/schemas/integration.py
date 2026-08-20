@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import Field
 
@@ -64,6 +65,18 @@ class ConnectStart(APIModel):
     provider: Provider
 
 
+class ProviderRead(APIModel):
+    """One provider this deployment can connect, for the connect screen.
+
+    Exists so the frontend does not carry its own copy of the supported list. A
+    hard-coded list in the UI drifts the moment an operator sets a variable, and
+    the failure is a button that leads to a 404.
+    """
+
+    provider: Provider
+    scopes: list[str] = Field(description="What connecting it will request permission for")
+
+
 class CalendarEventRead(APIModel):
     """One calendar event, in our shape rather than Google's.
 
@@ -78,3 +91,66 @@ class CalendarEventRead(APIModel):
     ends_at: datetime | None
     all_day: bool
     url: str | None
+
+
+class SlackChannelRead(APIModel):
+    """One public Slack channel."""
+
+    channel_id: str
+    name: str = Field(description="Including the leading '#'")
+    topic: str | None
+    member_count: int | None
+    is_archived: bool
+
+
+class NotionPageRead(APIModel):
+    """One Notion page the integration was given access to."""
+
+    page_id: str
+    title: str
+    url: str | None
+    last_edited_at: datetime | None
+
+
+class GitHubRepositoryRead(APIModel):
+    """One GitHub repository.
+
+    `private` is always False in practice at M14, because the connection requests
+    no repository scope — see `integrations/github/oauth.py`. The field is here
+    rather than omitted because the *data* has it, and a schema that hides a field
+    to match today's scope is one that lies the day the scope changes.
+    """
+
+    full_name: str
+    description: str | None
+    private: bool
+    url: str
+    updated_at: datetime | None
+
+
+class StripeChargeRead(APIModel):
+    """One Stripe charge, with the amount as a decimal.
+
+    `Decimal`, so it serialises as `25.00` rather than a float that may render as
+    `24.999999999999996`. Stripe's own integer minor units are converted in the
+    client — including the zero-decimal currencies, where dividing by 100 is a
+    hundredfold error.
+    """
+
+    charge_id: str
+    amount: Decimal
+    currency: str
+    status: str
+    description: str | None
+    created_at: datetime
+
+
+class EmailMessageRead(APIModel):
+    """One message from the connected mailbox."""
+
+    message_id: str
+    thread_id: str
+    sender: str
+    subject: str
+    snippet: str
+    received_at: datetime | None

@@ -32,7 +32,7 @@ facts that were true when it was proposed. Executing it a week later runs it
 against facts that may not be.
 
 **Rejecting cancels the run.** A run left `paused_for_approval` after a rejection
-is a run that looks resumable forever — and `resume_calendar_run` checks exactly
+is a run that looks resumable forever — and `resume_approved_run` checks exactly
 that status, so it would be genuinely resumable by anyone who found it.
 """
 
@@ -40,12 +40,14 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.calendar.tools import describe
+from app.agents.email.tools import describe as describe_email
 from app.core.config import Settings
 from app.core.exceptions import ConflictError, NotFoundError
 from app.integrations import OAuthRegistry
@@ -90,14 +92,47 @@ class ApprovalService:
         if action is None:
             return run, None
 
+        # The summary is rendered from the action by code, so the sentence somebody
+        # reads is a faithful description of the thing that will execute rather than
+        # a second account of it that might not match.
+        return run, await self._record(organization_id, run, action, describe(action))
+
+    async def propose_email_action(
+        self, organization_id: uuid.UUID, user_id: uuid.UUID | None, instruction: str
+    ) -> tuple[AgentRun, Approval | None]:
+        """Run the email agent and record what it wants permission to send.
+
+        **This is M12's deferred half**, and adding it required no change to
+        anything in this class except a second method that differs from the first
+        in two lines — which is what ADR-0015 claimed and had not yet demonstrated.
+
+        The stakes are higher than the calendar's, and the code is identical, which
+        is the point: the guarantee comes from the shape (the executor is built only
+        on the resume path) rather than from anybody remembering that email is
+        different.
+        """
+        run, action = await self._agents.run_email_agent(
+            organization_id, instruction, user_id=user_id
+        )
+
+        if action is None:
+            return run, None
+
+        return run, await self._record(organization_id, run, action, describe_email(action))
+
+    async def _record(
+        self,
+        organization_id: uuid.UUID,
+        run: AgentRun,
+        action: dict[str, Any],
+        summary: str,
+    ) -> Approval:
+        """Write the row a human will decide on."""
         approval = Approval(
             agent_run_id=run.id,
             organization_id=organization_id,
             requested_action=action,
-            # Rendered from the action by code, so the sentence somebody reads is a
-            # faithful description of the thing that will execute rather than a
-            # second account of it that might not match.
-            summary=describe(action),
+            summary=summary,
             status=ApprovalStatus.PENDING,
             expires_at=datetime.now(UTC) + timedelta(hours=self._settings.approval_ttl_hours),
         )
@@ -109,8 +144,9 @@ class ApprovalService:
             approval_id=str(approval.id),
             run_id=str(run.id),
             organization_id=str(organization_id),
+            kind=action.get("kind"),
         )
-        return run, approval
+        return approval
 
     # -- reading ----------------------------------------------------------
 
@@ -195,7 +231,17 @@ class ApprovalService:
         await self._session.commit()
 
         logger.info("approval.approved", approval_id=str(approval.id), decided_by=str(user_id))
-        await self._agents.resume_calendar_run(organization_id, approval.agent_run_id, registry)
+        await self._agents.resume_approved_run(
+            organization_id,
+            approval.agent_run_id,
+            registry,
+            # The row's own copy of the action, handed to the resume path so it can
+            # be checked against the checkpoint's. ADR-0015 said the two are
+            # "identical by construction"; M14 put a registry lookup between the
+            # approval and the executor, so the invariant is now enforced rather
+            # than merely true.
+            dict(approval.requested_action),
+        )
 
         # Re-read: resuming commits, and a commit expires every ORM object in the
         # session. Returning the stale instance would raise on first attribute access
@@ -282,7 +328,7 @@ class ApprovalService:
 
         `CANCELLED` has existed on `RunStatus` since M9 and this is its first writer.
         Leaving the run `paused_for_approval` after a decision would make it look
-        resumable forever — and `resume_calendar_run` checks exactly that status, so
+        resumable forever — and `resume_approved_run` checks exactly that status, so
         a stale row would be genuinely resumable by anyone who found it.
         """
         run = await self._session.get(AgentRun, run_id)
@@ -293,6 +339,6 @@ class ApprovalService:
         run.status = RunStatus.CANCELLED
         run.error = reason
         run.finished_at = datetime.now(UTC)
-        # Cleared for the same reason `resume_calendar_run` clears it: a checkpoint
+        # Cleared for the same reason `resume_approved_run` clears it: a checkpoint
         # behind a terminal status is an invitation to resume something finished.
         run.checkpoint = None

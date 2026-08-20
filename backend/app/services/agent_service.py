@@ -26,16 +26,18 @@ from typing import Any, cast
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents import CALENDAR_AGENT, RAG_AGENT
+from app.agents import CALENDAR_AGENT, EMAIL_AGENT, RAG_AGENT
 from app.agents.calendar.graph import (
     CalendarState,
-    build_execute_graph,
     build_propose_graph,
     checkpoint_of,
     initial_state,
-    state_from_checkpoint,
 )
-from app.agents.calendar.tools import build_create_event
+from app.agents.email.graph import EmailState
+from app.agents.email.graph import build_propose_graph as build_email_propose_graph
+from app.agents.email.graph import checkpoint_of as email_checkpoint_of
+from app.agents.email.graph import initial_state as email_initial_state
+from app.agents.execution import ExecutionState, action_kind, build_execute_graph
 from app.agents.history import HistoryTurn
 from app.agents.rag.graph import build_graph
 from app.core.config import Settings
@@ -265,8 +267,80 @@ class AgentService:
         log.info("agent.calendar_awaiting_approval", summary=state.get("summary", ""))
         return await self.get_run(organization_id, run_id), action
 
-    async def resume_calendar_run(
-        self, organization_id: uuid.UUID, run_id: uuid.UUID, registry: OAuthRegistry
+    async def run_email_agent(
+        self,
+        organization_id: uuid.UUID,
+        instruction: str,
+        *,
+        user_id: uuid.UUID | None = None,
+    ) -> tuple[AgentRun, dict[str, Any] | None]:
+        """Propose an email and stop. **Never sends anything.**
+
+        The same contract as `run_calendar_agent`, and deliberately a separate
+        method rather than a `agent_name` parameter on one: the two build different
+        state, and a single method taking a discriminator would put a branch on the
+        path between "an agent ran" and "a side effect happened" — which is the one
+        place in this codebase where a branch is worth avoiding at the cost of
+        thirty duplicated lines.
+        """
+        payload: dict[str, Any] = {"instruction": instruction}
+        run = await self._runs.create(
+            organization_id=organization_id,
+            agent_name=EMAIL_AGENT,
+            payload=payload,
+            triggered_by=user_id,
+        )
+        # Committed before the graph starts, as at M9: a row that only appears on
+        # success cannot record a crash.
+        await self._session.commit()
+
+        run_id = run.id
+        steps: list[dict[str, Any]] = []
+        log = logger.bind(run_id=str(run_id), organization_id=str(organization_id))
+
+        try:
+            state = cast(
+                "EmailState",
+                await build_email_propose_graph(steps.append).ainvoke(
+                    email_initial_state(
+                        instruction=instruction, organization_id=organization_id, user_id=user_id
+                    )
+                ),
+            )
+        except Exception:
+            log.exception("agent.email_errored")
+            await self._finish_failed(run_id, steps, "The agent failed unexpectedly. Try again.")
+            raise
+
+        action = state.get("proposed_action")
+        run = await self._reload(run_id)
+        await self._runs.add_steps(run, steps)
+
+        if action is None:
+            await self._runs.finish(
+                run,
+                RunStatus.SUCCEEDED,
+                output={"refusal": state.get("refusal", ""), "proposed": False},
+            )
+            await self._session.commit()
+            log.info("agent.email_nothing_to_propose")
+            return await self.get_run(organization_id, run_id), None
+
+        run.status = RunStatus.PAUSED_FOR_APPROVAL
+        run.checkpoint = email_checkpoint_of(state)
+        run.output = {"proposed": True, "summary": state.get("summary", "")}
+        await self._session.flush()
+        await self._session.commit()
+
+        log.info("agent.email_awaiting_approval", summary=state.get("summary", ""))
+        return await self.get_run(organization_id, run_id), action
+
+    async def resume_approved_run(
+        self,
+        organization_id: uuid.UUID,
+        run_id: uuid.UUID,
+        registry: OAuthRegistry,
+        approved_action: dict[str, Any],
     ) -> AgentRun:
         """Execute the action a human approved. The only path to a side effect.
 
@@ -279,6 +353,15 @@ class AgentService:
         state carries an `organization_id` and it is deliberately not trusted: a
         checkpoint that could nominate its own tenant would be an injection surface
         that survives restarts.
+
+        **`approved_action` is the row's copy, and it is checked against the
+        checkpoint's.** M14 renamed this from `resume_calendar_run` and made it
+        dispatch on the action's `kind`, which means the thing that executes is now
+        chosen by data rather than by the method's name. ADR-0015 asserted that
+        what was approved and what runs "are identical by construction"; with one
+        kind and one method that was true by inspection. With a lookup in the
+        middle it is worth *enforcing*, so a disagreement between the two stored
+        copies stops the run instead of silently preferring one.
         """
         run = await self.get_run(organization_id, run_id)
 
@@ -289,18 +372,31 @@ class AgentService:
             message = "This run is not waiting to be resumed."
             raise ConflictError(message)
 
+        action = run.checkpoint.get("proposed_action")
+
+        if action != approved_action:
+            # Written together in one transaction from the same dict, so this cannot
+            # happen today. It is checked because the consequence if it ever does is
+            # that a human authorised one thing and another was performed — the
+            # single failure this whole design exists to prevent, and not one to
+            # discover from a support ticket.
+            message = "The approved action no longer matches this run. It was not performed."
+            raise ConflictError(message)
+
+        known = action_kind(str(action.get("kind", "")))
         steps: list[dict[str, Any]] = []
-        state = state_from_checkpoint(run.checkpoint)
-        executor = build_create_event(self._session, registry, self._settings, organization_id)
-        log = logger.bind(run_id=str(run_id), organization_id=str(organization_id))
+        executor = known.build_executor(self._session, registry, self._settings, organization_id)
+        log = logger.bind(run_id=str(run_id), organization_id=str(organization_id), kind=known.kind)
 
         try:
-            final = await build_execute_graph(executor, steps.append).ainvoke(state)
+            final = await build_execute_graph(
+                executor, steps.append, tool_name=known.tool_name
+            ).ainvoke(ExecutionState(proposed_action=action))
         except AppError as error:
-            # A revoked credential, a missing integration, Google refusing the write.
-            # The run fails and says why — and the approval stays decided, because a
-            # human did approve it. What failed was the execution.
-            log.warning("agent.calendar_execute_failed", reason=error.code)
+            # A revoked credential, a missing integration, the provider refusing the
+            # write. The run fails and says why — and the approval stays decided,
+            # because a human did approve it. What failed was the execution.
+            log.warning("agent.execute_failed", reason=error.code)
             await self._finish_failed(run_id, steps, error.message)
             raise
 
@@ -313,7 +409,7 @@ class AgentService:
         await self._runs.finish(run, RunStatus.SUCCEEDED, output=dict(final.get("result", {})))
         await self._session.commit()
 
-        log.info("agent.calendar_executed")
+        log.info("agent.executed")
         return await self.get_run(organization_id, run_id)
 
     async def get_run(self, organization_id: uuid.UUID, run_id: uuid.UUID) -> AgentRun:

@@ -65,8 +65,8 @@ half-milestone and call it shipped.
 
 ## Where the project is
 
-`CLAUDE.md` is authoritative. As of the last update: **M1–M12 shipped**, next is
-**M13**.
+`CLAUDE.md` is authoritative. As of the last update: **M1–M14 shipped**, next is
+**M15** (multi-agent), then **M16** (production hardening).
 
 **Mentor mode is suspended.** The user's words, verbatim, given right after M12
 shipped: *"there is no mentor mode anymore, mentor mode will be after we get this
@@ -83,10 +83,14 @@ test suite. Where those two diverge, say so plainly in the milestone note.
 
 ## What is genuinely outstanding
 
-Nothing is half-built. The tree is 104 implemented modules to 28 stubs, and every
-stub belongs to M14 (five more integrations), M15 (the multi-agent packages) or
-M16 (rate limiting, metrics, the audit log) — plus `app/agents/email/`, which M12
-deliberately left alone because there is no Gmail integration to draft into.
+Nothing is half-built. The tree is 116 implemented modules to 17 stubs, and every
+remaining stub belongs to M15 (the multi-agent packages: supervisor, planner,
+research, proposal, evaluation, memory graphs) or M16 (rate limiting, metrics, the
+audit log) — plus `app/integrations/google_drive/`, which M14 left alone because
+nothing in this product reads a file from Drive.
+
+`app/agents/email/` is no longer among them: M14 built the Gmail integration M12
+was waiting for, and the email agent with it.
 
 Two things wait on the user rather than on code:
 

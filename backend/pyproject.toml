@@ -159,11 +159,8 @@ omit = [
     # still-stubbed agents, and a directory glob would have hidden the
     # implemented ones from the gate. The same correction M5 made for `rag/`.
     # M12 delisted `app/agents/calendar/*` and the five approval modules below.
-    # `app/agents/email/*` stays: the roadmap pairs an email draft with the calendar
-    # write, and M12 shipped only the calendar one — there is no Gmail integration
-    # to draft into, and building one is M14's work. Said plainly in the milestone
-    # note rather than quietly half-done.
-    "app/agents/email/*.py",
+    # M14 delisted `app/agents/email/*` — the half M12 deferred, because there was
+    # no Gmail integration to draft into. There is one now.
     "app/agents/evaluation/*.py",
     "app/agents/memory/*.py",
     "app/agents/planner/*.py",
@@ -182,12 +179,12 @@ omit = [
     # unbuilt providers, and a directory glob would have hidden the implemented
     # ones from the gate. That is precisely the failure test_stub_manifest.py
     # exists to catch, and it caught it.
-    "app/integrations/github/*.py",
-    "app/integrations/gmail/*.py",
+    # M14 delisted five of those six: gmail, slack, notion, github and stripe.
+    # `google_drive` stays, and it is the only provider left — nothing in this
+    # product reads a file from Drive, so connecting it would produce an
+    # integration with no endpoint to call. It is absent from
+    # `SUPPORTED_PROVIDERS` for the same reason.
     "app/integrations/google_drive/*.py",
-    "app/integrations/notion/*.py",
-    "app/integrations/slack/*.py",
-    "app/integrations/stripe/*.py",
     "app/workers/tasks/agent_execution.py",
     "app/workers/tasks/email_sync.py",
     "app/middleware/rate_limit.py",

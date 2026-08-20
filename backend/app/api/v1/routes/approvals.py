@@ -43,6 +43,7 @@ from app.rag.embeddings import EmbeddingProvider, get_embedder
 from app.schemas.approval import (
     ApprovalRead,
     CalendarActionRequest,
+    EmailActionRequest,
     ProposalRead,
     RejectionRequest,
 )
@@ -80,6 +81,43 @@ async def propose_calendar_action(
     approves.
     """
     run, approval = await _service(session, embedder, llm, settings).propose_calendar_action(
+        membership.organization_id, membership.user_id, request.instruction
+    )
+
+    if approval is None:
+        return ProposalRead(
+            agent_run_id=run.id,
+            status=run.status.value,
+            message=str((run.output or {}).get("refusal", "")),
+        )
+
+    return ProposalRead(
+        agent_run_id=run.id,
+        status=run.status.value,
+        approval=ApprovalRead.model_validate(approval),
+    )
+
+
+@router.post("/agent-runs/email", summary="Propose an email for approval")
+async def propose_email_action(
+    request: EmailActionRequest,
+    membership: CurrentMembership,
+    session: SessionDep,
+    embedder: EmbedderDep,
+    llm: LLMDep,
+    settings: SettingsDep,
+) -> ProposalRead:
+    """Run the email agent. **This never sends anything.**
+
+    The route M12 said it was deferring, and it is deliberately the same seven
+    lines as the calendar one — the safety property comes from the executor being
+    built only on the resume path, not from this endpoint being careful.
+
+    The returned `approval.requested_action` contains the **whole message**,
+    including the body. That is what the person deciding has to read: a summary of
+    an email is a second account of it, and the thing that gets sent is the body.
+    """
+    run, approval = await _service(session, embedder, llm, settings).propose_email_action(
         membership.organization_id, membership.user_id, request.instruction
     )
 

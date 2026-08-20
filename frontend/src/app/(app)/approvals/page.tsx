@@ -1,7 +1,7 @@
 import { DecideForm } from "@/components/decide-form";
 import { ProposeForm } from "@/components/propose-form";
 import { Badge, Card, Empty } from "@/components/ui";
-import { decideApproval, proposeCalendarAction } from "@/lib/actions";
+import { decideApproval, proposeCalendarAction, proposeEmailAction } from "@/lib/actions";
 import { apiFetch } from "@/lib/api";
 import type { Approval } from "@/lib/types";
 
@@ -27,10 +27,28 @@ export default async function ApprovalsPage() {
         </p>
       </div>
 
-      <Card className="space-y-3 p-4">
-        <h2 className="text-sm font-medium">Draft a calendar change</h2>
-        <ProposeForm action={proposeCalendarAction} />
-      </Card>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card className="space-y-3 p-4">
+          <h2 className="text-sm font-medium">Draft a calendar change</h2>
+          <ProposeForm
+            action={proposeCalendarAction}
+            placeholder="Schedule a design review on 2026-08-20 09:00"
+            submitLabel="Draft it"
+          />
+        </Card>
+
+        {/* M14. The parser is strict here too, and for a sharper reason: a
+            half-understood instruction sends the wrong words to a real person,
+            under the user's name, with no way to recall it. */}
+        <Card className="space-y-3 p-4">
+          <h2 className="text-sm font-medium">Draft an email</h2>
+          <ProposeForm
+            action={proposeEmailAction}
+            placeholder="Email ada@example.com about Q3 saying the report is ready"
+            submitLabel="Draft it"
+          />
+        </Card>
+      </div>
 
       <Card>
         {approvals.length === 0 ? (

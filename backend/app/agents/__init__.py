@@ -24,6 +24,18 @@ connected the calendar — because a write with nothing to authorise it is preci
 what the approval machinery exists to prevent.
 """
 
-AGENT_NAMES = frozenset({RAG_AGENT, CALENDAR_AGENT})
+EMAIL_AGENT = "email"
+"""M14: drafts an email and sends it only after a human approves the exact text.
+
+The third agent, and the one M12 deferred — it said so plainly: "there is no Gmail
+integration to draft into, and building one is M14's OAuth work". The approval
+machinery needed no changes to accept it, which is the claim ADR-0015 made and
+this is the test of it.
+
+It is also the first *irreversible* side effect in the system. A calendar event can
+be deleted; a sent email cannot be recalled from somebody else's inbox.
+"""
+
+AGENT_NAMES = frozenset({RAG_AGENT, CALENDAR_AGENT, EMAIL_AGENT})
 """Every agent this deployment can run. Validated at the API boundary, so an
 unknown name is a 422 rather than a run row that exists and never executes."""

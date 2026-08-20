@@ -39,9 +39,24 @@ from app.core.exceptions import NotFoundError
 from app.db.deps import get_db
 from app.db.redis import get_redis
 from app.integrations import SUPPORTED_PROVIDERS, OAuthRegistry, get_oauth_registry
+from app.integrations.github.client import GitHubClient
+from app.integrations.gmail.client import GmailClient
 from app.integrations.google_calendar.client import GoogleCalendarClient
+from app.integrations.notion.client import NotionClient
+from app.integrations.slack.client import SlackClient
+from app.integrations.stripe.client import StripeClient
 from app.models.integration import Provider
-from app.schemas.integration import CalendarEventRead, ConnectStart, IntegrationRead
+from app.schemas.integration import (
+    CalendarEventRead,
+    ConnectStart,
+    EmailMessageRead,
+    GitHubRepositoryRead,
+    IntegrationRead,
+    NotionPageRead,
+    ProviderRead,
+    SlackChannelRead,
+    StripeChargeRead,
+)
 from app.services.integration_service import IntegrationService
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
@@ -92,6 +107,30 @@ async def list_integrations(
         membership.organization_id
     )
     return [IntegrationRead.model_validate(integration) for integration in integrations]
+
+
+@router.get("/providers", summary="List connectable providers")
+async def list_providers(
+    membership: CurrentMembership,
+    registry: RegistryDep,
+) -> list[ProviderRead]:
+    """What this deployment can connect, and what each will ask permission for.
+
+    Derived from the registry rather than from `SUPPORTED_PROVIDERS`, so it
+    reflects what is *configured* — a provider whose client id is unset is absent
+    here, which is what stops the UI offering a button that leads to a 404.
+
+    Authenticated, though it exposes no tenant data: it describes the deployment,
+    and an unauthenticated version would tell an anonymous caller exactly which
+    third-party integrations this organization has credentials for.
+    """
+    del membership
+
+    return [
+        ProviderRead(provider=provider, scopes=list(oauth.scopes))
+        for provider in registry.configured()
+        if (oauth := registry.get(provider)) is not None
+    ]
 
 
 @router.get("/{provider}/connect", summary="Begin connecting an account")
@@ -174,9 +213,128 @@ async def list_calendar_events(
     becomes a 404 telling the user to reconnect, which is the only action
     available to them.
     """
-    _, access_token = await _service(session, redis, registry, settings).get_fresh_token(
-        membership.organization_id, Provider.GOOGLE_CALENDAR
-    )
+    service = _service(session, redis, registry, settings)
 
-    events = await GoogleCalendarClient().list_events(access_token, limit=limit)
+    async with service.using(membership.organization_id, Provider.GOOGLE_CALENDAR) as token:
+        events = await GoogleCalendarClient().list_events(token, limit=limit)
+
     return [CalendarEventRead.model_validate(event) for event in events]
+
+
+@router.get("/slack/channels", summary="List Slack channels")
+async def list_slack_channels(
+    membership: CurrentMembership,
+    session: SessionDep,
+    redis: RedisDep,
+    registry: RegistryDep,
+    settings: SettingsDep,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> list[SlackChannelRead]:
+    """Public channels in the connected workspace. Read-only.
+
+    Nothing here posts. `SCOPES` in `integrations/slack/oauth.py` does not request
+    `chat:write`, for the reason M11 gave about the calendar: a write permission
+    granted a milestone before anything uses it means every connected workspace
+    has already said yes to something nobody has reviewed.
+    """
+    service = _service(session, redis, registry, settings)
+
+    async with service.using(membership.organization_id, Provider.SLACK) as token:
+        channels = await SlackClient().list_channels(token, limit=limit)
+
+    return [SlackChannelRead.model_validate(channel) for channel in channels]
+
+
+@router.get("/notion/pages", summary="Search Notion pages")
+async def search_notion_pages(
+    membership: CurrentMembership,
+    session: SessionDep,
+    redis: RedisDep,
+    registry: RegistryDep,
+    settings: SettingsDep,
+    query: Annotated[str, Query(max_length=200)] = "",
+    limit: Annotated[int, Query(ge=1, le=25)] = 10,
+) -> list[NotionPageRead]:
+    """Pages the user shared with this integration when they connected it.
+
+    An empty query returns their picker selection rather than the whole
+    workspace — Notion scopes search to what was explicitly shared, which is a
+    property worth not defeating.
+    """
+    service = _service(session, redis, registry, settings)
+
+    async with service.using(membership.organization_id, Provider.NOTION) as token:
+        pages = await NotionClient().search_pages(token, query=query, limit=limit)
+
+    return [NotionPageRead.model_validate(page) for page in pages]
+
+
+@router.get("/github/repositories", summary="List GitHub repositories")
+async def list_github_repositories(
+    membership: CurrentMembership,
+    session: SessionDep,
+    redis: RedisDep,
+    registry: RegistryDep,
+    settings: SettingsDep,
+    limit: Annotated[int, Query(ge=1, le=30)] = 10,
+) -> list[GitHubRepositoryRead]:
+    """Public repositories for the connected account.
+
+    Public *only*, and deliberately: M14 requests `read:user` and no repository
+    scope, because GitHub's classic OAuth has no read-only grant for private code
+    — `repo` would mean write access to everything the user can reach. See
+    `integrations/github/oauth.py`.
+    """
+    service = _service(session, redis, registry, settings)
+
+    async with service.using(membership.organization_id, Provider.GITHUB) as token:
+        repositories = await GitHubClient().list_repositories(token, limit=limit)
+
+    return [GitHubRepositoryRead.model_validate(repository) for repository in repositories]
+
+
+@router.get("/stripe/charges", summary="List recent Stripe charges")
+async def list_stripe_charges(
+    membership: CurrentMembership,
+    session: SessionDep,
+    redis: RedisDep,
+    registry: RegistryDep,
+    settings: SettingsDep,
+    limit: Annotated[int, Query(ge=1, le=25)] = 10,
+) -> list[StripeChargeRead]:
+    """Recent charges on the connected account. Read-only, structurally.
+
+    The credential behind this call is a live Stripe secret key for somebody
+    else's business, bounded by the `read_only` scope requested at connect time
+    *and* by `StripeClient` having no method that is not a GET.
+    """
+    service = _service(session, redis, registry, settings)
+
+    async with service.using(membership.organization_id, Provider.STRIPE) as token:
+        charges = await StripeClient().list_charges(token, limit=limit)
+
+    return [StripeChargeRead.model_validate(charge) for charge in charges]
+
+
+@router.get("/gmail/messages", summary="List recent email")
+async def list_gmail_messages(
+    membership: CurrentMembership,
+    session: SessionDep,
+    redis: RedisDep,
+    registry: RegistryDep,
+    settings: SettingsDep,
+    query: Annotated[str, Query(max_length=200)] = "",
+    limit: Annotated[int, Query(ge=1, le=10)] = 5,
+) -> list[EmailMessageRead]:
+    """Recent messages from the connected mailbox.
+
+    `limit` caps at 10 rather than the 50 the other listings allow, because Gmail
+    returns message *ids* and each one costs a second request — see
+    `integrations/gmail/client.py`. The bound is a request budget, not a page size.
+    """
+    service = _service(session, redis, registry, settings)
+
+    async with service.using(membership.organization_id, Provider.GMAIL) as token:
+        messages = await GmailClient().list_messages(token, query=query, limit=limit)
+
+    return [EmailMessageRead.model_validate(message) for message in messages]

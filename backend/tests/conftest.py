@@ -29,6 +29,7 @@ import pathlib
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -176,6 +177,45 @@ def database_url() -> str:
         pytest.skip(f"PostgreSQL unavailable at {make_url(url).host}: {type(exc).__name__}")
 
     return url
+
+
+@pytest.fixture(autouse=True)
+def _no_outbound_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Refuse any real outbound HTTP request from the test suite (M14).
+
+    **A test reached slack.com and nobody noticed.** An M14 e2e test connected a
+    Slack workspace and then called `/integrations/slack/channels`; the offline
+    authorization server had issued a token no real Slack would honour, so the
+    request went out over the wire, took 252ms, came back 401, and the assertion
+    failed for a reason that had nothing to do with the code under test.
+
+    That is the mild version. The dangerous one is the same request *succeeding* —
+    a suite that quietly depends on a third party is green on a good day, red
+    during somebody else's incident, and green again by the time anyone looks.
+    It also makes the suite unrunnable on a plane, which is where a fair amount of
+    this project was written.
+
+    Every provider client takes a `transport` for exactly this reason
+    (`BaseClient.__init__`), and the unit tests use `MockTransport`. This fixture
+    makes forgetting it a loud, immediate failure naming the URL, rather than a
+    slow test with a confusing result.
+
+    Only `AsyncHTTPTransport` is blocked — the class that opens sockets.
+    `MockTransport` and `ASGITransport` are different classes and keep working, so
+    nothing that was already honest has to change. Postgres and Redis do not go
+    through httpx at all.
+    """
+
+    async def refuse(self: httpx.AsyncHTTPTransport, request: httpx.Request) -> httpx.Response:
+        del self
+        message = (
+            f"A test made a real network request to {request.url}. "
+            "Pass transport=httpx.MockTransport(...) to the client under test, "
+            "or use the offline provider."
+        )
+        raise AssertionError(message)
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", refuse)
 
 
 @pytest.fixture(autouse=True)

@@ -101,6 +101,18 @@ export interface Integration {
   created_at: string;
 }
 
+export interface ProviderRead {
+  provider: string;
+  /** What connecting will request permission for. Empty for Notion, which grants
+   *  access per page rather than per scope. */
+  scopes: string[];
+}
+
+export interface ConnectStart {
+  authorize_url: string;
+  provider: string;
+}
+
 export interface AgentStep {
   step_index: number;
   node_name: string;

@@ -35,8 +35,9 @@ DEFINITIONS = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 
 MINIMUM_EXPECTED_IMPLEMENTED = 30
 
-MINIMUM_EXPECTED_STUBS = 20
-"""Lowered from 30 at M12, and the reason matters more than the number.
+MINIMUM_EXPECTED_STUBS = 12
+"""Lowered from 30 at M12 and from 20 at M14, and the reason matters more than the
+number.
 
 These bounds exist to catch a *broken classifier* — one that suddenly called
 everything implemented would make the two real tests above pass while measuring
@@ -49,9 +50,15 @@ to 28 stubs, and the old floor of 30 had started failing on *success*. Moving it
 the honest response; deleting the assertion would throw away the only thing guarding
 the classifier.
 
-What remains unbuilt is M14 (five integrations), M15 (the multi-agent packages) and
-M16 (rate limiting, metrics, the audit log) — plus `app/agents/email/`, which M12
-deliberately left alone.
+M14 implemented twelve of them — five providers' OAuth and clients, the shared
+Google flow, and `app/agents/email/` — taking the tree to 17 stubs, so the floor
+moved again. It is now well clear of what remains rather than tracking it, which
+is what it should have been all along.
+
+What remains unbuilt is M15 (the multi-agent packages: supervisor, planner,
+research, proposal, evaluation, memory graphs) and M16 (rate limiting, metrics,
+the audit log) — plus `app/integrations/google_drive/`, which M14 left alone
+because nothing in this product reads a file from Drive.
 """
 
 DEFINITION_FREE_BUT_IMPLEMENTED = frozenset(

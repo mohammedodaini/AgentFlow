@@ -37,6 +37,8 @@ from __future__ import annotations
 import json
 import secrets
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -47,8 +49,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.core.exceptions import AuthenticationError, NotFoundError
 from app.core.security import decrypt_secret, encrypt_secret
-from app.integrations import OAuthRegistry
-from app.integrations.base import OAuthError, OAuthProvider, OAuthRevokedError, TokenGrant
+from app.integrations import CREDENTIAL_VARIABLES, OAuthRegistry
+from app.integrations.base import OAuthProvider, OAuthRevokedError, TokenGrant
 from app.models.integration import Integration, IntegrationStatus, Provider
 from app.models.oauth_token import OAuthToken
 from app.repositories.integration_repository import IntegrationRepository
@@ -193,12 +195,18 @@ class IntegrationService:
             raise NotFoundError(message)
 
         if not token.needs_refresh():
+            # Includes every *perpetual* credential — Slack, Notion, GitHub — which
+            # `needs_refresh` returns False for because there is nothing to refresh
+            # and nothing said it would expire. Under M11 this line was not reached
+            # for them and the branch below marked them revoked on first use. See
+            # `OAuthToken.needs_refresh` and ADR-0017.
             return integration, decrypt_secret(token.access_token)
 
         if token.refresh_token is None:
-            # Nothing to refresh with, and the access token has expired. Terminal
-            # rather than transient, so it is recorded as such instead of being
-            # retried by every caller for the rest of the row's life.
+            # A stated expiry, now passed, and no way to renew. Distinct from a
+            # perpetual credential, which never gets here: this one *did* expire.
+            # Terminal rather than transient, so it is recorded as such instead of
+            # being retried by every caller for the rest of the row's life.
             await self._mark_revoked(integration, reason="no_refresh_token")
             message = "This integration expired and cannot be refreshed. Reconnect it."
             raise NotFoundError(message)
@@ -221,6 +229,38 @@ class IntegrationService:
             provider=provider.value,
         )
         return integration, grant.access_token
+
+    @asynccontextmanager
+    async def using(self, organization_id: uuid.UUID, provider: Provider) -> AsyncIterator[str]:
+        """A live access token, with the credential's death recorded if it dies.
+
+        **M14 added this because `REVOKED` had exactly one writer, and it was on a
+        path three of the five providers never take.** Under M11, an integration
+        became `REVOKED` only when a *refresh* was rejected. Slack, Notion and
+        GitHub credentials never expire and are therefore never refreshed — so
+        when one of them stopped working, nothing recorded it. The call failed with
+        a 502, the row stayed `ACTIVE`, the integrations page kept saying
+        "connected", and every subsequent call failed the same way forever.
+
+        Getting a token and noticing that it died are the same operation, so they
+        are one call site:
+
+            async with service.using(org_id, Provider.SLACK) as token:
+                channels = await SlackClient().list_channels(token)
+
+        The `OAuthRevokedError` is converted rather than re-raised. It is a
+        subclass of `OAuthError`, which maps to 502 — an upstream failure inviting
+        a retry. A revoked credential is not an upstream failure and no retry can
+        fix it; the only useful thing to say is "reconnect it", which is a 404.
+        """
+        integration, access_token = await self.get_fresh_token(organization_id, provider)
+
+        try:
+            yield access_token
+        except OAuthRevokedError:
+            await self._mark_revoked(integration, reason="provider_rejected")
+            message = f"Access to this {provider.value} account was revoked. Reconnect it."
+            raise NotFoundError(message) from None
 
     # -- manage -----------------------------------------------------------
 
@@ -305,10 +345,27 @@ class IntegrationService:
 
         The token is removed rather than kept beside the `REVOKED` status: nobody
         legitimate can use it again, so retaining it stores risk and nothing else.
+
+        **Committed, not merely flushed** — and M14 found this at runtime, not in a
+        test. Every caller of this method goes on to raise `NotFoundError`, and
+        `get_db` rolls the session back on any exception (that is the whole point of
+        session-per-request). So the flush was discarded by the very failure that
+        prompted it: the API told the user "access was revoked, reconnect it" while
+        the row stayed ACTIVE, and the next call repeated the discovery, forever.
+
+        Invisible to every test in the suite because the integration tests call the
+        service directly and assert inside the same transaction, where a flush *is*
+        visible. Only an HTTP round trip — a real one, with curl — shows it.
+
+        This is M12's lesson about approvals from a third direction, and the rule is
+        the same: **a fact learned about the outside world must survive the failure
+        it caused.** Committing here is safe because nothing else is pending at this
+        point — the read paths have written nothing, and on the resume path the
+        human's decision was already committed before the executor ran.
         """
         integration.status = IntegrationStatus.REVOKED
         integration.tokens = None
-        await self._session.flush()
+        await self._session.commit()
 
         logger.warning(
             "integration.revoked",
@@ -327,14 +384,23 @@ class IntegrationService:
         return integration
 
     def _provider(self, provider: Provider) -> OAuthProvider:
+        """The provider implementation, or a 404 naming what is missing.
+
+        `NotFoundError` rather than `OAuthError`, and M14 changed it. An
+        `OAuthError` maps to 502 (`app/api/errors.py`), which tells a client the
+        *upstream* failed and a retry may help. Neither half is true here: nothing
+        was contacted, and no number of retries will set an environment variable.
+        A 404 saying "this deployment cannot connect Slack, set these two
+        variables" is the honest answer, and it is the same answer the route
+        already gives for a provider this codebase has not implemented.
+        """
         oauth = self._registry.get(provider)
 
         if oauth is None:
-            message = (
-                f"{provider.value} is not configured on this deployment. "
-                "Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."
-            )
-            raise OAuthError(message)
+            variables = CREDENTIAL_VARIABLES.get(provider)
+            how = f" Set {variables[0]} and {variables[1]}." if variables else ""
+            message = f"{provider.value} is not configured on this deployment.{how}"
+            raise NotFoundError(message)
 
         return oauth
 

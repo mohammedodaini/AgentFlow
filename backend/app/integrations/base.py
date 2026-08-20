@@ -99,9 +99,33 @@ class TokenGrant:
             access_token=str(payload["access_token"]),
             refresh_token=payload.get("refresh_token"),
             expires_at=expires_at,
-            scopes=str(payload.get("scope", "")).split(),
+            scopes=parse_scopes(payload.get("scope")),
             external_account_id=external_account_id,
         )
+
+
+def parse_scopes(raw: Any) -> list[str]:
+    """Split a provider's `scope` field, whichever separator it chose.
+
+    RFC 6749 §3.3 says space-delimited. **Slack and GitHub both send commas**,
+    and M11 shipped a bare `.split()` because Google obeys the spec — so the
+    first Slack connection would have stored a single 35-character "scope"
+    reading `chat:write,channels:read` and every question asked of that list
+    would have had the wrong answer.
+
+    Nothing would have raised. `Integration.scopes` is display-and-audit data, so
+    the damage is a permissions list that is wrong in the one place a human goes
+    to find out what they granted.
+
+    Both separators are accepted here rather than configured per provider,
+    because no scope any of these products issues contains a comma or a space —
+    and a per-provider parser is one more thing for the sixth integration to
+    forget.
+    """
+    if not raw:
+        return []
+
+    return [scope for scope in str(raw).replace(",", " ").split() if scope]
 
 
 @runtime_checkable
@@ -165,6 +189,65 @@ class BaseClient:
         # which is the part actually worth testing.
         self._transport = transport
 
+    # -- what subclasses vary ---------------------------------------------
+
+    extra_headers: dict[str, str] = {}
+    """Headers every request to this provider must carry, beyond the bearer token.
+
+    Added at M14, because two of the four new providers reject a request without
+    one and neither failure names the cause. Notion answers 400 `validation_error`
+    when `Notion-Version` is missing, and GitHub silently serves whichever API
+    version it feels like unless `X-GitHub-Api-Version` pins it — so the second
+    one is not an error at all, it is a response shape that changes under you on
+    a date GitHub chooses.
+
+    A class attribute rather than a constructor argument: it is a fact about the
+    provider, not about the call, and passing it per request is how one call site
+    ends up missing it.
+    """
+
+    forbidden_message = "The connected account does not permit this operation."
+    """What a 403 means to the person who asked, in this provider's terms.
+
+    **M11 put Google Calendar's wording here, in the shared base class**, so a
+    403 from Slack would have told a user to reconnect their *calendar* to grant
+    write access. It was correct when exactly one provider existed and became
+    wrong the moment a second one did — which is the whole failure mode of
+    hoisting a specific message into a general place.
+    """
+
+    def _headers(self, access_token: str) -> dict[str, str]:
+        return {"Authorization": f"Bearer {access_token}", **self.extra_headers}
+
+    def _raise_for_status(self, response: httpx.Response, url: str) -> None:
+        """Turn an HTTP failure into the right one of our two error types.
+
+        Extracted at M14 so that a client which cannot use `get_json` — GitHub's
+        collection endpoints return a bare JSON array, not an object — still
+        classifies failures identically. The alternative was a second copy of
+        this ladder, which is how one provider ends up treating a 403 as
+        retryable while the other four do not.
+        """
+        if response.status_code == httpx.codes.UNAUTHORIZED:
+            message = "The provider rejected our credential."
+            raise OAuthRevokedError(message)
+
+        if response.status_code == httpx.codes.FORBIDDEN:
+            # Distinct from 401, and the distinction is the whole reason M12
+            # widened the calendar scope. 401 means "this credential is not
+            # valid"; 403 means "it is valid and does not permit this" — which is
+            # what an account connected under a narrower scope gets. Telling a
+            # user to reconnect is actionable; "the request failed" is not.
+            #
+            # The wording comes from `forbidden_message` rather than being spelled
+            # out here. M11 hard-coded Google Calendar's, which meant a 403 from
+            # Slack would have advised reconnecting a calendar.
+            raise OAuthRevokedError(self.forbidden_message)
+
+        if response.is_error:
+            message = f"Request to {url} returned {response.status_code}."
+            raise OAuthError(message)
+
     async def get_json(
         self, url: str, *, access_token: str, params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
@@ -176,20 +259,12 @@ class BaseClient:
         """
         async with httpx.AsyncClient(timeout=self._timeout, transport=self._transport) as client:
             try:
-                response = await client.get(
-                    url, params=params, headers={"Authorization": f"Bearer {access_token}"}
-                )
+                response = await client.get(url, params=params, headers=self._headers(access_token))
             except httpx.HTTPError as error:
                 message = f"Request to {url} failed: {error}"
                 raise OAuthError(message) from error
 
-        if response.status_code == httpx.codes.UNAUTHORIZED:
-            message = "The provider rejected our credential."
-            raise OAuthRevokedError(message)
-
-        if response.is_error:
-            message = f"Request to {url} returned {response.status_code}."
-            raise OAuthError(message)
+        self._raise_for_status(response, url)
 
         payload: dict[str, Any] = response.json()
         return payload
@@ -207,33 +282,12 @@ class BaseClient:
         """
         async with httpx.AsyncClient(timeout=self._timeout, transport=self._transport) as client:
             try:
-                response = await client.post(
-                    url, json=body, headers={"Authorization": f"Bearer {access_token}"}
-                )
+                response = await client.post(url, json=body, headers=self._headers(access_token))
             except httpx.HTTPError as error:
                 message = f"Request to {url} failed: {error}"
                 raise OAuthError(message) from error
 
-        if response.status_code == httpx.codes.UNAUTHORIZED:
-            message = "The provider rejected our credential."
-            raise OAuthRevokedError(message)
-
-        if response.status_code == httpx.codes.FORBIDDEN:
-            # Distinct from 401, and the distinction is the whole reason M12
-            # widened the scope. 401 means "this credential is not valid"; 403
-            # here means "it is valid and does not permit this" — which is exactly
-            # what an account connected under M11's read-only scope gets when it
-            # tries to write. Telling a user to reconnect is actionable; telling
-            # them the request failed is not.
-            message = (
-                "This Google account was connected without permission to change "
-                "the calendar. Reconnect it to grant write access."
-            )
-            raise OAuthRevokedError(message)
-
-        if response.is_error:
-            message = f"Request to {url} returned {response.status_code}."
-            raise OAuthError(message)
+        self._raise_for_status(response, url)
 
         payload: dict[str, Any] = response.json()
         return payload

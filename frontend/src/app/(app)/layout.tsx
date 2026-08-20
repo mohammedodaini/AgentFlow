@@ -27,6 +27,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     { href: "/chat", label: "Chat" },
     { href: "/approvals", label: "Approvals" },
     { href: "/documents", label: "Documents" },
+    { href: "/integrations", label: "Integrations" },
   ];
 
   return (

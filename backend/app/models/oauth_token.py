@@ -104,12 +104,33 @@ class OAuthToken(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     """When the access token stops working, or NULL if the provider did not say.
 
-    Nullable, and treated as "expired" by `needs_refresh`. That is the safe
-    direction: an unnecessary refresh costs one HTTP call, while assuming an
-    unknown expiry is still valid costs a failed user-facing operation.
+    NULL carries two different meanings, and M14 is where the difference became
+    load-bearing. Google always sends `expires_in`, so under M11 a NULL here could
+    only mean "a response was malformed" — and treating that as expired was the
+    safe direction, costing one wasted HTTP call.
+
+    Slack, Notion and GitHub send no `expires_in` **because their credentials do
+    not expire**. For them NULL is the normal, permanent, correct state. See
+    `needs_refresh` and ADR-0017 for how the two are told apart.
     """
 
     integration: Mapped[Integration] = relationship(back_populates="tokens")
+
+    @property
+    def is_perpetual(self) -> bool:
+        """Whether this credential has no expiry and no way to be renewed.
+
+        True for a Slack bot token, a Notion workspace token, and a GitHub OAuth
+        App token: the provider issued neither an expiry nor a refresh token, and
+        the credential stays valid until somebody uninstalls the app.
+
+        The two conditions are checked **together** on purpose. `expires_at IS
+        NULL` alone would also match a Google response that arrived malformed, and
+        a refresh token alone is what makes renewal possible — so it is precisely
+        the *absence of both* that means "there is nothing to renew, and nothing
+        said this would stop working".
+        """
+        return self.expires_at is None and self.refresh_token is None
 
     def needs_refresh(self, *, now: datetime | None = None) -> bool:
         """Whether the access token should be exchanged before use.
@@ -118,8 +139,26 @@ class OAuthToken(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         means every expiry costs a wasted round trip and produces a failure that
         has to be told apart from a genuinely revoked credential — and those two
         are identical at the HTTP layer.
+
+        **M14 fixed a bug that would have made three of five integrations
+        unusable.** M11 returned True for a NULL `expires_at`, full stop. Combined
+        with `IntegrationService.get_fresh_token`, which marks an integration
+        REVOKED when there is no refresh token to use, that meant the *first* call
+        against a freshly connected Slack, Notion or GitHub account would set it to
+        REVOKED and tell the user to reconnect — after which reconnecting would
+        produce another credential with the same shape, and the same result.
+
+        A permanent credential is not an expired one. It is asked of no
+        refresh endpoint, and it is only ever retired by a provider actually
+        rejecting it, which `IntegrationService.using` records.
         """
+        if self.is_perpetual:
+            return False
+
         if self.expires_at is None:
+            # A refresh token exists but the provider did not say when the access
+            # token dies. Refresh eagerly: one wasted HTTP call against a
+            # user-facing failure is not a close trade.
             return True
 
         return (now or datetime.now(UTC)) >= self.expires_at - REFRESH_SKEW

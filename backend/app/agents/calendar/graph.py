@@ -8,7 +8,14 @@ The shape
                                   │
                           [ approvals row ]
                                   │
-    execute graph:            execute ──► END        (run 2, after a human decides)
+    execute graph:  app/agents/execution.py          (run 2, after a human decides)
+
+**The execute half no longer lives here.** M12 wrote it in this module, which was
+right while calendar was the only kind of approved action. M14 added a second
+(`email.send_draft`) and the two were identical — take the approved dict, call the
+one function that performs it, record what happened — so it moved to
+`app/agents/execution.py`. What stays is the part that is genuinely about
+calendars.
 
 **Two compiled graphs over one set of node functions, not one graph with a
 checkpointer.** That is the load-bearing decision in this module, so it is worth
@@ -45,14 +52,14 @@ from __future__ import annotations
 
 import time
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from typing import Any, TypedDict
 
 import structlog
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from app.agents.calendar.tools import CREATE_EVENT, describe, parse_event_request
+from app.agents.calendar.tools import describe, parse_event_request
 
 logger = structlog.get_logger(__name__)
 
@@ -113,10 +120,6 @@ class CalendarState(TypedDict, total=False):
 StepRecorder = Callable[[dict[str, Any]], None]
 """Called once per node with what that node did. The same contract as the RAG
 graph's (M9): our semantics, not the framework's."""
-
-Executor = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
-"""What `build_create_event` returns. Typed as a plain callable rather than a
-`BaseTool` on purpose — see `tools.py`."""
 
 CalendarGraph = CompiledStateGraph[CalendarState, Any, CalendarState, CalendarState]
 
@@ -197,50 +200,6 @@ def build_propose_graph(record: StepRecorder) -> CalendarGraph:
     return graph.compile()
 
 
-def build_execute_graph(execute_action: Executor, record: StepRecorder) -> CalendarGraph:
-    """The second half: do the thing a human permitted.
-
-    A separate compiled graph rather than a branch in the first one, because the two
-    run in different processes at different times. A single graph would have to
-    re-enter at `execute`, which means either a checkpointer holding the position (a
-    second store of a fact the row already holds) or a conditional edge that skips
-    `plan` — and a skipped planning step is one nobody can prove did not run.
-
-    The executor is injected rather than built here for the same reason the RAG
-    graph takes its tools: this module decides *when* the side effect happens, and
-    `tools.py` decides *what* it is.
-    """
-
-    async def execute(state: CalendarState) -> CalendarState:
-        started = time.perf_counter()
-        action = state.get("proposed_action")
-
-        if action is None:  # pragma: no cover — the service refuses to resume
-            message = "Cannot execute a run with no proposed action."
-            raise ValueError(message)
-
-        result = await execute_action(action)
-
-        record(
-            {
-                "node_name": EXECUTE,
-                "tool_name": CREATE_EVENT,
-                "tool_input": action,
-                "tool_output": result,
-                "latency_ms": _elapsed_ms(started),
-                "tokens": 0,
-            }
-        )
-        return {"result": result}
-
-    graph: StateGraph[CalendarState, Any, CalendarState, CalendarState] = StateGraph(CalendarState)
-    graph.add_node(EXECUTE, execute)
-    graph.add_edge(START, EXECUTE)
-    graph.add_edge(EXECUTE, END)
-
-    return graph.compile()
-
-
 def checkpoint_of(state: CalendarState) -> dict[str, Any]:
     """The subset of state worth persisting across the pause.
 
@@ -248,6 +207,13 @@ def checkpoint_of(state: CalendarState) -> dict[str, Any]:
     whitelists: whatever a node adds later should not silently become part of the
     durable contract that a resume — possibly running a newer version of this code —
     has to understand.
+
+    Its counterpart `state_from_checkpoint` was deleted at M14. It existed to rebuild
+    a full `CalendarState` for the execute graph, and that graph now runs on
+    `ExecutionState` — which holds the approved action and nothing else. The rule it
+    was written to enforce did not go with it: the tenant still comes from the
+    request rather than from the checkpoint, and `AgentService.resume_approved_run`
+    is where that is now visible.
     """
     return {
         "instruction": state.get("instruction", ""),
@@ -256,23 +222,6 @@ def checkpoint_of(state: CalendarState) -> dict[str, Any]:
         "proposed_action": state.get("proposed_action"),
         "summary": state.get("summary", ""),
     }
-
-
-def state_from_checkpoint(checkpoint: dict[str, Any]) -> CalendarState:
-    """Rebuild state for the resume path.
-
-    Ids come back as strings and stay strings; nothing here parses them into
-    `uuid.UUID`, because the executor closes over the tenant from the *request*
-    rather than reading it from state. A checkpoint that could nominate its own
-    organization would be an injection surface that survives restarts.
-    """
-    return CalendarState(
-        instruction=str(checkpoint.get("instruction", "")),
-        organization_id=str(checkpoint.get("organization_id", "")),
-        user_id=checkpoint.get("user_id"),
-        proposed_action=checkpoint.get("proposed_action"),
-        summary=str(checkpoint.get("summary", "")),
-    )
 
 
 def initial_state(

@@ -15,7 +15,14 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { ApiError, apiFetch, apiUpload } from "@/lib/api";
-import type { Approval, Conversation, DocumentRead, Proposal, Turn } from "@/lib/types";
+import type {
+  Approval,
+  ConnectStart,
+  Conversation,
+  DocumentRead,
+  Proposal,
+  Turn,
+} from "@/lib/types";
 
 export interface ActionResult {
   error?: string;
@@ -126,6 +133,65 @@ export async function decideApproval(
   }
 
   revalidatePath("/approvals");
+  return {};
+}
+
+export async function proposeEmailAction(
+  _previous: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const instruction = String(formData.get("instruction") ?? "").trim();
+
+  if (instruction === "") {
+    return { error: "Describe the email to draft." };
+  }
+
+  let proposal: Proposal;
+
+  try {
+    proposal = await apiFetch<Proposal>("/agent-runs/email", {
+      method: "POST",
+      body: { instruction },
+    });
+  } catch (error) {
+    return explain(error);
+  }
+
+  revalidatePath("/approvals");
+  return proposal.approval ? {} : { error: proposal.message ?? "Nothing to propose." };
+}
+
+// --- integrations --------------------------------------------------------
+
+/**
+ * Start an OAuth flow by sending the browser to the provider's consent screen.
+ *
+ * The backend returns the URL in a JSON body rather than issuing a 302, because a
+ * redirect in response to an XHR is followed invisibly and the client gets an
+ * opaque CORS error instead of a consent screen (M11). A Server Action can do
+ * what an XHR cannot: `redirect()` here is a real, top-level navigation.
+ *
+ * `state` is minted by the backend and stored in Redis before this returns, so
+ * the callback — which arrives with no auth header at all — can be tied back to
+ * this organization. Nothing about that binding passes through the browser.
+ */
+export async function connectProvider(provider: string): Promise<void> {
+  const start = await apiFetch<ConnectStart>(`/integrations/${provider}/connect`);
+
+  // Outside the try/catch that would otherwise swallow it: Next implements
+  // `redirect` by throwing, so catching broadly here would turn a working
+  // navigation into a silent no-op.
+  redirect(start.authorize_url);
+}
+
+export async function disconnectIntegration(integrationId: string): Promise<ActionResult> {
+  try {
+    await apiFetch(`/integrations/${integrationId}`, { method: "DELETE" });
+  } catch (error) {
+    return explain(error);
+  }
+
+  revalidatePath("/integrations");
   return {};
 }
 

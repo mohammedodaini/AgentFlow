@@ -53,7 +53,7 @@ def enter_production(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
     monkeypatch.setenv("LLM_PROVIDER", "anthropic")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-not-a-real-key")
-    monkeypatch.setenv("OAUTH_PROVIDER", "google")
+    monkeypatch.setenv("OAUTH_PROVIDER", "live")
     # A generated key, distinct from both the published placeholder and
     # SECRET_KEY — production refuses all three of "placeholder", "missing" and
     # "same as the signing key", and this helper has to clear every one.
