@@ -5,7 +5,12 @@ fully at session start; update the "Current position" and "Progress log"
 sections whenever a milestone step completes.** The human should not have to
 re-explain context, ever.
 
-## The mentorship contract (never violate)
+## The mentorship contract (SUSPENDED — see "Current position")
+
+> **2026-08-16: the user suspended this.** *"there is no mentor mode anymore,
+> mentor mode will be after we get this project working."* The contract below
+> is the agreement to return to *once the product works*; until then M13–M16
+> are built autonomously. Do not follow it now, and do not delete it.
 
 - Claude is a Senior Staff AI Engineer **mentor**, not a code generator. The
   user is an AI student (solid Python) becoming an agentic-AI engineer.
@@ -58,27 +63,26 @@ past M4 without asking.
   `backend/app/evaluation/baselines/handbook.json`. Per `docs/agents.md`, no
   prompt or retrieval change ships without it passing. `make eval-baseline`
   accepts new scores — only after a human has read the report.
-- **Mode: autonomous through M12.** The user said, verbatim: *"let us do that
-  and just finsh m6-m12 without mentor mode"*. That was given after I argued
-  M6–M12 is the actual learning core and should stay in mentor mode; they
-  reaffirmed, so it stands. **Mentor mode resumes at M13** unless they say
-  otherwise.
-- **Next: M13 (frontend) — and MENTOR MODE IS BACK.** The user's instruction was
-  *"finsh m6-m12 without mentor mode"*; M12 shipped, so that instruction is
-  spent. **Do not build M13 autonomously.** The contract at the top of this file
-  applies again: explain → build together → quiz → exercise → review → refactor.
-  Ask before writing code.
-- **Raise the deferred quiz and exercise** at the next direct engagement. They
-  are listed under "Still pending" below and have now been carried across six
-  sessions. Mentor mode resuming is the moment they stop being deferrable.
+- **Mode (2026-08-16, supersedes everything above): MENTOR MODE IS SUSPENDED
+  UNTIL THE PRODUCT WORKS.** The user's words, verbatim: *"there is no mentor
+  mode anymore, mentor mode will be after we get this project working"*. That
+  was said immediately after M12 shipped and after I had written the opposite
+  into this file, so it is a deliberate correction rather than a passing remark.
+- **What that licenses:** build M13 → M16 autonomously, to the same standard as
+  M6–M12 — full `make check`, an ADR per contested decision, a milestone note
+  with a "Bugs this milestone found" section, runtime verification, one commit
+  per milestone. Do not ask permission per milestone.
+- **What it does not license:** skipping the gate, or declaring something done
+  that has not been run. "Working" is the bar the user named, and a green test
+  suite is not the same as a product somebody can use.
+- **The deferred quiz and exercise wait for mentor mode.** They are listed under
+  "Still pending" below. Do not raise them now — the user has explicitly parked
+  that mode; raising them would be relitigating a decision they just made.
 - **No API keys exist in this environment** (`OPENAI_API_KEY`,
   `ANTHROPIC_API_KEY` both unset). Every milestone from M6 ships with a
   deterministic offline provider behind a protocol, and `Settings` refuses each
   one in production. Keep doing that, and keep saying plainly in each milestone
   note what is verified (plumbing) and what is not (model quality).
-- **The deferred quiz and exercise are still unanswered** — see "Still pending"
-  below. Carried across four sessions now. They are *not* a blocker for
-  autonomous work; offer them when the user next engages directly.
 
 ### Environment facts learned this session
 - `uv` installed at `/opt/homebrew/bin/uv`; venv runs **Python 3.13.2**.
@@ -119,7 +123,7 @@ past M4 without asking.
   and allows the **retry**, so a multi-file milestone costs roughly two tool
   calls per file. It denied 38 times across M5.
 
-### Still pending — ASK THESE FIRST at the start of the M5 session
+### Still pending — PARKED until mentor mode returns (do not raise now)
 1. Quiz (unanswered — re-ask when mentor mode resumes):
    - Q1: Why separate `schemas/` from `models/`? What breaks if a route
      returns an ORM object?

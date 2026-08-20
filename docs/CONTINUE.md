@@ -63,24 +63,23 @@ half-milestone and call it shipped.
   the work uncommitted, append a short note under `## Blocked on` saying exactly
   where you stopped, and exit. The next run reads it.
 
-## Where the project is — STOP AND READ
+## Where the project is
 
-`CLAUDE.md` is authoritative. As of the last update: **M1–M12 shipped.**
+`CLAUDE.md` is authoritative. As of the last update: **M1–M12 shipped**, next is
+**M13**.
 
-**The autonomous run is over.** The user's instruction was *"let us do that and
-just finsh m6-m12 without mentor mode"*. M12 shipped on 2026-08-16, so that
-instruction is spent — it did not license M13.
+**Mentor mode is suspended.** The user's words, verbatim, given right after M12
+shipped: *"there is no mentor mode anymore, mentor mode will be after we get this
+project working."* That replaced an earlier note in this file telling you to stop
+and build nothing — read `CLAUDE.md` rather than a remembered summary of it.
 
-**If you were started by `scripts/continue-agentflow.sh` with no further
-instruction, the correct action is to build nothing.** Append a note under
-`## Blocked on` saying the autonomous run is complete and mentor mode has resumed,
-and exit without committing. That is not a failure; it is the schedule outliving
-its mandate, and continuing would break the working agreement at the top of
-`CLAUDE.md`.
+So M13 → M16 are **autonomous**, to the same standard as M6–M12: full
+`make check`, an ADR per genuinely contested decision, a milestone note with a
+"Bugs this milestone found" section, runtime verification, one commit. The
+"one milestone per run" rule above still applies.
 
-M13 (the Next.js frontend) is a **mentor-mode** milestone: explain the concept,
-build together, quiz, exercise, review, refactor. It needs the user present by
-definition.
+The bar the user named is **"working"** — a product somebody can use, not a green
+test suite. Where those two diverge, say so plainly in the milestone note.
 
 ## What is genuinely outstanding
 
