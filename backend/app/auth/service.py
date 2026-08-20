@@ -17,8 +17,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.tokens import TokenPair, TokenService
 from app.core.exceptions import AuthenticationError, DuplicateEmailError
 from app.core.security import hash_password, needs_rehash, verify_password
+from app.models.event import EventType
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest
+from app.services.event_service import EventService
 from app.services.organization_service import OrganizationService
 
 logger = structlog.get_logger(__name__)
@@ -50,10 +52,17 @@ class AuthService:
     `TokenService` knows the token lifecycle. This class knows the *order*.
     """
 
-    def __init__(self, session: AsyncSession, tokens: TokenService) -> None:
+    def __init__(
+        self, session: AsyncSession, tokens: TokenService, *, ip_address: str | None = None
+    ) -> None:
         self._session = session
         self._tokens = tokens
         self._organizations = OrganizationService(session)
+        self._events = EventService(session)
+        # M16. The caller's address, for the audit trail. Passed in rather than
+        # read here, because a service has no request — and threading it through
+        # is what keeps this layer callable from a worker and a test.
+        self._ip_address = ip_address
 
     async def register(self, request: RegisterRequest) -> tuple[User, TokenPair]:
         """Create an account, its personal organization, and a token pair.
@@ -93,7 +102,13 @@ class AuthService:
             user_id=str(user.id),
             organization_id=str(organization.id),
         )
-        # TODO(M16): write an `events` audit row here.
+        await self._events.record(
+            EventType.USER_REGISTERED,
+            organization_id=organization.id,
+            actor_user_id=user.id,
+            ip_address=self._ip_address,
+            email=email,
+        )
         return user, self._tokens.issue_pair(user.id)
 
     async def login(self, request: LoginRequest) -> tuple[User, TokenPair]:
@@ -116,14 +131,39 @@ class AuthService:
         if user is None:
             verify_password(password, _TIMING_EQUALISER_HASH)
             logger.info("auth.login_failed", reason="unknown_email")
+            # `record_now`, not `record`: this raises next, and `get_db` rolls
+            # back on any exception — so a flushed event would be discarded by the
+            # failure it documents. See `EventService.record_now`.
+            #
+            # No `actor_user_id`, because there is no user. The email is recorded
+            # instead: "which addresses is somebody guessing?" is the question a
+            # credential-stuffing investigation actually asks.
+            await self._events.record_now(
+                EventType.USER_SIGN_IN_FAILED,
+                ip_address=self._ip_address,
+                reason="unknown_email",
+                email=email,
+            )
             raise AuthenticationError(_INVALID_CREDENTIALS)
 
         if not verify_password(password, user.password_hash):
             logger.info("auth.login_failed", reason="bad_password", user_id=str(user.id))
+            await self._events.record_now(
+                EventType.USER_SIGN_IN_FAILED,
+                actor_user_id=user.id,
+                ip_address=self._ip_address,
+                reason="bad_password",
+            )
             raise AuthenticationError(_INVALID_CREDENTIALS)
 
         if not user.is_active:
             logger.info("auth.login_failed", reason="inactive", user_id=str(user.id))
+            await self._events.record_now(
+                EventType.USER_SIGN_IN_FAILED,
+                actor_user_id=user.id,
+                ip_address=self._ip_address,
+                reason="inactive",
+            )
             raise AuthenticationError(_INVALID_CREDENTIALS)
 
         # Login is the only moment the plaintext password exists, so it is the
@@ -134,6 +174,11 @@ class AuthService:
             logger.info("auth.password_rehashed", user_id=str(user.id))
 
         logger.info("auth.login_succeeded", user_id=str(user.id))
+        # `record`, not `record_now`: this path succeeds, so the event commits
+        # with the request — including the silent re-hash above, if it happened.
+        await self._events.record(
+            EventType.USER_SIGNED_IN, actor_user_id=user.id, ip_address=self._ip_address
+        )
         return user, self._tokens.issue_pair(user.id)
 
     async def refresh(self, refresh_token: str) -> TokenPair:

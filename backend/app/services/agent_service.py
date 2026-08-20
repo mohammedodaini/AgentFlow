@@ -46,6 +46,7 @@ from app.integrations import OAuthRegistry
 from app.llm.base import LLMError, LLMProvider
 from app.llm.pricing import cost_of
 from app.models.agent_run import AgentRun, RunStatus
+from app.monitoring.metrics import MetricsRegistry
 from app.rag.embeddings import EmbeddingProvider
 from app.repositories.agent_run_repository import AgentRunRepository
 
@@ -61,9 +62,15 @@ class AgentService:
         embedder: EmbeddingProvider,
         llm: LLMProvider,
         settings: Settings,
+        metrics: MetricsRegistry | None = None,
     ) -> None:
         self._session = session
         self._runs = AgentRunRepository(session)
+        # Optional, and defaulted, so a worker or a test constructing this service
+        # does not have to invent an application to hold a counter. When it is
+        # absent the run still happens and simply is not counted — which is the
+        # right direction: monitoring must never be able to stop the work.
+        self._metrics = metrics
         self._embedder = embedder
         self._llm = llm
         self._settings = settings
@@ -159,7 +166,7 @@ class AgentService:
         total_tokens = usage.get("input", 0) + usage.get("output", 0)
 
         await self._runs.add_steps(run, steps)
-        await self._runs.finish(
+        await self.finish(
             run,
             RunStatus.SUCCEEDED,
             output={"answer": state.get("answer", ""), "citations": state.get("citations", [])},
@@ -247,7 +254,7 @@ class AgentService:
         if action is None:
             # Nothing to approve. The run is *finished*, not paused — an approval
             # asking somebody to permit nothing is worse than no approval at all.
-            await self._runs.finish(
+            await self.finish(
                 run,
                 RunStatus.SUCCEEDED,
                 output={"refusal": state.get("refusal", ""), "proposed": False},
@@ -317,7 +324,7 @@ class AgentService:
         await self._runs.add_steps(run, steps)
 
         if action is None:
-            await self._runs.finish(
+            await self.finish(
                 run,
                 RunStatus.SUCCEEDED,
                 output={"refusal": state.get("refusal", ""), "proposed": False},
@@ -406,7 +413,7 @@ class AgentService:
         # resumable-looking run behind a terminal status, and the next person to read
         # the column would reasonably wonder whether it still meant something.
         run.checkpoint = None
-        await self._runs.finish(run, RunStatus.SUCCEEDED, output=dict(final.get("result", {})))
+        await self.finish(run, RunStatus.SUCCEEDED, output=dict(final.get("result", {})))
         await self._session.commit()
 
         log.info("agent.executed")
@@ -457,6 +464,30 @@ class AgentService:
             output_rate=self._settings.llm_output_cost_per_mtok,
         )
 
+    async def finish(self, run: AgentRun, status: RunStatus, **fields: Any) -> None:
+        """Reach a terminal state, and count it.
+
+        Every `finish` in this service goes through here rather than calling the
+        repository directly, because a counter incremented at five call sites is a
+        counter that is wrong the day somebody adds a sixth. `agent_runs_total`,
+        `agent_tokens_total` and `agent_cost_usd_total` are the numbers this
+        product actually pays for; a dashboard of request rates that cannot show
+        token spend is monitoring the cheap half.
+
+        Public alongside `reload` and `finish_failed`, for the same reason those
+        two became public at M15: `SupervisorService` runs its own graph over this
+        service's session and has to reach the same terminal path.
+        """
+        await self._runs.finish(run, status, **fields)
+
+        if self._metrics is not None:
+            self._metrics.observe_agent_run(
+                run.agent_name,
+                status.value,
+                tokens=run.total_tokens,
+                cost_usd=float(run.cost_usd),
+            )
+
     async def reload(self, run_id: uuid.UUID) -> AgentRun:
         """Re-fetch a run after a commit expired it.
 
@@ -504,5 +535,5 @@ class AgentService:
             return
 
         await self._runs.add_steps(run, steps)
-        await self._runs.finish(run, RunStatus.FAILED, error=message)
+        await self.finish(run, RunStatus.FAILED, error=message)
         await self._session.commit()

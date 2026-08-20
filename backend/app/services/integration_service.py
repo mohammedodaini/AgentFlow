@@ -51,9 +51,11 @@ from app.core.exceptions import AuthenticationError, NotFoundError
 from app.core.security import decrypt_secret, encrypt_secret
 from app.integrations import CREDENTIAL_VARIABLES, OAuthRegistry
 from app.integrations.base import OAuthProvider, OAuthRevokedError, TokenGrant
+from app.models.event import EventType
 from app.models.integration import Integration, IntegrationStatus, Provider
 from app.models.oauth_token import OAuthToken
 from app.repositories.integration_repository import IntegrationRepository
+from app.services.event_service import EventService
 
 logger = structlog.get_logger(__name__)
 
@@ -95,6 +97,7 @@ class IntegrationService:
         self._redis = redis
         self._registry = registry
         self._settings = settings
+        self._events = EventService(session)
 
     # -- connect ----------------------------------------------------------
 
@@ -173,6 +176,17 @@ class IntegrationService:
             provider=provider.value,
             account=grant.external_account_id,
             scopes=len(grant.scopes),
+        )
+        # The account and the scopes, never the grant. "Who connected our Stripe
+        # account, and when?" is the question this row exists to answer a year
+        # from now, long after any log has rotated.
+        await self._events.record(
+            EventType.INTEGRATION_CONNECTED,
+            organization_id=organization_id,
+            actor_user_id=user_id,
+            provider=provider.value,
+            account=grant.external_account_id,
+            scopes=grant.scopes,
         )
         return integration
 
@@ -293,6 +307,12 @@ class IntegrationService:
             organization_id=str(organization_id),
             integration_id=str(integration_id),
         )
+        await self._events.record(
+            EventType.INTEGRATION_DISCONNECTED,
+            organization_id=organization_id,
+            provider=integration.provider.value,
+            integration_id=integration.id,
+        )
         return integration
 
     # -- internals --------------------------------------------------------
@@ -370,6 +390,15 @@ class IntegrationService:
         logger.warning(
             "integration.revoked",
             integration_id=str(integration.id),
+            provider=integration.provider.value,
+            reason=reason,
+        )
+        # No actor: nobody here did this. A provider refused a credential, which
+        # is a *fact about the outside world* — and recording a user as its actor
+        # would put an action in somebody's history that they did not take.
+        await self._events.record(
+            EventType.INTEGRATION_REVOKED,
+            organization_id=integration.organization_id,
             provider=integration.provider.value,
             reason=reason,
         )

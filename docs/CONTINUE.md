@@ -65,9 +65,13 @@ half-milestone and call it shipped.
 
 ## Where the project is
 
-`CLAUDE.md` is authoritative. As of the last update: **M1–M15 shipped**, next is
-**M16** (production: Docker deploy, monitoring, Sentry, rate limiting, a security
-hardening pass, load test). It is the last one.
+`CLAUDE.md` is authoritative. As of the last update: **M1–M16 shipped. The
+roadmap is finished.**
+
+There is no M17. If you were started by the scheduler with no instruction, the
+right thing to do is *nothing*: append a note under `## Blocked on` asking what
+comes next and stop. Inventing a milestone is how a finished project acquires
+features nobody asked for.
 
 **Mentor mode is suspended.** The user's words, verbatim, given right after M12
 shipped: *"there is no mentor mode anymore, mentor mode will be after we get this

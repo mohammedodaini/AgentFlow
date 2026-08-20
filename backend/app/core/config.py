@@ -425,6 +425,59 @@ class Settings(BaseSettings):
     URL in a browser history or a proxy log.
     """
 
+    # --- production hardening (M16) --------------------------------------
+
+    rate_limit_enabled: bool = True
+    """Whether `RateLimitMiddleware` counts anything.
+
+    On by default, including in development, deliberately. A limiter that is off
+    until production is a limiter first exercised in production — and the first
+    thing anyone learns about it is that a legitimate workflow trips it. The
+    default limit is high enough that a person cannot reach it by hand.
+
+    The test suite turns it off, because a shared Redis counter between tests
+    would make the hundredth test in a run fail for something the first test did.
+    """
+
+    rate_limit_per_minute: int = 300
+    """Budget per caller per minute, where an expensive call costs five.
+
+    300 is 60 ordinary requests a minute or 60 agent runs an hour, which no human
+    reaches through a UI and a runaway script reaches in seconds. It is a guess,
+    and a deliberately documented one: the number to tune once there is traffic to
+    look at, and the load test in `scripts/loadtest.py` is what produces the
+    figures to tune it against.
+    """
+
+    metrics_enabled: bool = True
+    metrics_token: SecretStr = SecretStr("")
+    """Shared secret for `GET /metrics`, and it is *not* optional in production.
+
+    The endpoint publishes request rates, error counts, latency, token spend and
+    per-agent activity. That is a free reconnaissance feed — traffic patterns,
+    which routes exist, when a deploy happened, whether an attack is working — and
+    it is exactly the kind of endpoint that gets left open because "it's only
+    metrics".
+
+    Empty means unauthenticated, which is right for a container scraped over a
+    private network and refused below in production. A token rather than the JWT
+    auth used everywhere else because Prometheus has no way to log in; a static
+    bearer is what scrapers actually support.
+    """
+
+    sentry_dsn: str = ""
+    """Where to report unhandled exceptions, or empty to report nowhere.
+
+    Empty by default and never required: a deployment with no Sentry account is
+    valid, and failing to start over an absent error reporter would be an outage
+    caused by the thing meant to observe outages.
+    """
+
+    sentry_traces_sample_rate: float = 0.0
+    """Fraction of requests traced. Zero by default — performance tracing bills
+    per transaction, and turning it on is a spending decision somebody should
+    make on purpose rather than inherit from a default."""
+
     @property
     def is_development(self) -> bool:
         """True only in local development — drives human-readable log output."""
@@ -515,6 +568,19 @@ class Settings(BaseSettings):
                 "OAUTH_PROVIDER is 'offline' in production. That provider is an "
                 "in-memory authorization server for development; it issues tokens "
                 "no provider ever granted. Set OAUTH_PROVIDER=live."
+            )
+            raise ValueError(message)
+
+        if self.metrics_enabled and not self.metrics_token.get_secret_value():
+            # M16. `/metrics` publishes traffic rates, error counts, latency and
+            # spend — a free reconnaissance feed for anyone who finds it, and the
+            # canonical endpoint people forget to protect because "it's only
+            # metrics". Refused rather than defaulted to off: silently disabling
+            # monitoring in production is the other way to lose.
+            message = (
+                "METRICS_TOKEN is empty in production. /metrics publishes traffic "
+                "and spend; set a token, or set METRICS_ENABLED=false if the "
+                "endpoint is unreachable from outside the cluster."
             )
             raise ValueError(message)
 

@@ -18,7 +18,7 @@ install:         ## Install backend dependencies into a virtualenv
 	cd backend && uv sync --all-extras
 
 dev:             ## Run the API with hot reload
-	cd backend && uv run uvicorn app.main:app --reload --port 8000
+	cd backend && uv run uvicorn app.main:app --reload --port 8000 --no-server-header
 
 worker:          ## Run the background task worker (arq)
 	cd backend && uv run arq app.workers.settings.WorkerSettings
@@ -31,6 +31,18 @@ eval:            ## Run the golden set — exits non-zero on a regression (M8)
 
 eval-baseline:   ## Accept this run's scores as the new baseline (read the report first)
 	cd backend && uv run python -m app.evaluation --save-baseline
+
+prod-up:         ## Build and run the full stack in containers (M16)
+	docker compose -f docker-compose.prod.yml up -d --build
+
+prod-down:       ## Stop the container stack, keeping its volumes
+	docker compose -f docker-compose.prod.yml down
+
+prod-logs:       ## Follow the API and worker logs
+	docker compose -f docker-compose.prod.yml logs -f api worker
+
+loadtest:        ## Measure latency and error rate against a running API (M16)
+	cd backend && uv run python ../scripts/loadtest.py
 
 test-fast:       ## Unit tests only — no database, no Redis (sub-second)
 	cd backend && uv run pytest -m unit --no-cov

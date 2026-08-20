@@ -1,0 +1,10 @@
+# What must never reach the image (M16). See backend/.dockerignore for the
+# argument; the two that matter here are `.next/` (a host build, with absolute
+# paths baked in) and `node_modules/` (a macOS install, useless in a Linux image
+# and the single largest thing in this tree).
+node_modules/
+.next/
+.env
+.env.*
+!.env.example
+tests/

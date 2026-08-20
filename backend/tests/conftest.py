@@ -237,6 +237,12 @@ def _test_env(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> Iterat
     monkeypatch.setenv("DATABASE_URL", resolve_test_database_url())
     monkeypatch.setenv("REDIS_URL", resolve_test_redis_url())
     monkeypatch.setenv("STORAGE_LOCAL_PATH", str(tmp_path / "storage"))
+    # M16. The limiter counts per caller per minute in a *shared* Redis, and the
+    # suite runs hundreds of requests from one address inside one window — so the
+    # hundredth test would fail for something the first test did, and which test
+    # broke would depend on ordering. `tests/e2e/test_rate_limit.py` turns it back
+    # on deliberately, which is the only place its behaviour is asserted.
+    monkeypatch.setenv("RATE_LIMIT_ENABLED", "false")
 
     get_settings.cache_clear()
     yield

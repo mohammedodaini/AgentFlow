@@ -22,6 +22,8 @@
  */
 import "server-only";
 
+import { headers as nextHeaders } from "next/headers";
+
 import { API_BASE } from "@/lib/config";
 import {
   clearSession,
@@ -78,7 +80,38 @@ async function buildHeaders(withoutOrganization: boolean): Promise<Headers> {
     }
   }
 
+  await forwardClientAddress(headers);
+
   return headers;
+}
+
+/**
+ * Pass the caller's address through to the API, for the audit trail (M16).
+ *
+ * **Without this the audit log is worse than empty.** The browser never talks to
+ * the API directly (ADR-0016), so every request the backend sees originates from
+ * *this* server — and `events.ip_address` recorded the web container's address
+ * for every sign-in in the system. A column holding one constant value looks like
+ * data and is useless for the thing it exists for, which is noticing that eighty
+ * failed sign-ins came from one address in a minute.
+ *
+ * Honest about the limit: this can only forward what it was given. Behind a load
+ * balancer that sets `X-Forwarded-For` — the production case — the real address
+ * arrives and is passed on. Running Next with nothing in front of it, there is no
+ * header to read and nothing is sent, which leaves the backend recording the
+ * connection address as before. It is not possible to do better from here: Next
+ * does not expose the socket's peer address to application code.
+ *
+ * The backend reads only the *first* entry of this header and only trusts it
+ * behind a proxy — see `client_ip` in `app/middleware/rate_limit.py`.
+ */
+async function forwardClientAddress(headers: Headers): Promise<void> {
+  const incoming = await nextHeaders();
+  const forwarded = incoming.get("x-forwarded-for");
+
+  if (forwarded) {
+    headers.set("X-Forwarded-For", forwarded);
+  }
 }
 
 /**

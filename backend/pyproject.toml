@@ -49,6 +49,7 @@ dependencies = [
     "langchain-core>=0.3",
     # --- Observability ---
     "structlog>=24.4",
+    "sentry-sdk[fastapi]>=2.19",     # M16. Optional at runtime: no DSN, no init
     # --- HTTP client for integrations ---
     "httpx>=0.28",
 ]
@@ -190,11 +191,14 @@ omit = [
     # integration with no endpoint to call. It is absent from
     # `SUPPORTED_PROVIDERS` for the same reason.
     "app/integrations/google_drive/*.py",
+    # M16 delisted `rate_limit.py`, `metrics.py` and `models/event.py`.
+    # The two worker tasks below stay, and are the last entries here: agent runs
+    # execute inline because they are interactive (a user is waiting for the
+    # answer), and there is no email *sync* because M14 built drafting and
+    # sending rather than a mailbox mirror. Both are features nobody has asked
+    # for rather than work left undone.
     "app/workers/tasks/agent_execution.py",
     "app/workers/tasks/email_sync.py",
-    "app/middleware/rate_limit.py",
-    "app/monitoring/metrics.py",
-    "app/models/event.py",
 ]
 
 [tool.coverage.report]

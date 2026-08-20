@@ -15,7 +15,7 @@ from __future__ import annotations
 from http import HTTPStatus
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,22 +23,29 @@ from app.auth.service import AuthService
 from app.auth.tokens import TokenPair, TokenService
 from app.db.deps import get_db
 from app.db.redis import get_redis
+from app.middleware.rate_limit import client_ip
 from app.schemas.auth import LoginRequest, RefreshRequest, RegisterRequest, TokenPairResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def get_auth_service(
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_db)],
     redis: Annotated[Redis, Depends(get_redis)],
 ) -> AuthService:
-    """Assemble the service from its two dependencies.
+    """Assemble the service from its dependencies.
 
     Written as a dependency rather than constructed inside each route so a test
     can swap the whole service through `app.dependency_overrides` — and so the
-    wiring lives in exactly one place when a third dependency appears.
+    wiring lives in exactly one place when a third dependency appears. It just
+    did: M16 needs the caller's address for the audit trail.
+
+    The address is resolved *here* rather than in the service, because a service
+    has no request — and keeping it that way is what lets `AuthService` be called
+    from a worker or a test without inventing one.
     """
-    return AuthService(session, TokenService(redis))
+    return AuthService(session, TokenService(redis), ip_address=client_ip(request))
 
 
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]

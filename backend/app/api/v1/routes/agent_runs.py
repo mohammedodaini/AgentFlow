@@ -33,6 +33,7 @@ from app.db.deps import get_db
 from app.llm import get_llm
 from app.llm.base import LLMProvider
 from app.models.agent_run import AgentRun, RunStatus
+from app.monitoring.metrics import MetricsRegistry, get_registry
 from app.rag.embeddings import EmbeddingProvider, get_embedder
 from app.schemas.agent_run import (
     AgentRunCreate,
@@ -55,10 +56,17 @@ LLMDep = Annotated[LLMProvider, Depends(get_llm)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
+MetricsDep = Annotated[MetricsRegistry, Depends(get_registry)]
+
+
 def _service(
-    session: AsyncSession, embedder: EmbeddingProvider, llm: LLMProvider, settings: Settings
+    session: AsyncSession,
+    embedder: EmbeddingProvider,
+    llm: LLMProvider,
+    settings: Settings,
+    metrics: MetricsRegistry | None = None,
 ) -> AgentService:
-    return AgentService(session, embedder, llm, settings)
+    return AgentService(session, embedder, llm, settings, metrics=metrics)
 
 
 @router.post("", summary="Run the RAG agent on a question")
@@ -69,6 +77,7 @@ async def create_run(
     embedder: EmbedderDep,
     llm: LLMDep,
     settings: SettingsDep,
+    metrics: MetricsDep,
 ) -> AgentRunRead:
     """Execute the agent and return the finished run with its trace.
 
@@ -78,7 +87,7 @@ async def create_run(
     the property that stops prompt injection reaching another customer's
     documents.
     """
-    run = await _service(session, embedder, llm, settings).run_rag_agent(
+    run = await _service(session, embedder, llm, settings, metrics).run_rag_agent(
         membership.organization_id,
         request.question,
         user_id=membership.user_id,
@@ -96,6 +105,7 @@ async def create_supervised_run(
     embedder: EmbedderDep,
     llm: LLMDep,
     settings: SettingsDep,
+    metrics: MetricsDep,
 ) -> SupervisorRead:
     """**The single entry point (M15).** Say what you want; it decides who acts.
 
@@ -114,7 +124,7 @@ async def create_supervised_run(
     product *can* do. It is not a 4xx: the request was well-formed and understood,
     and the answer is that nothing here serves it.
     """
-    outcome = await SupervisorService(session, embedder, llm, settings).run(
+    outcome = await SupervisorService(session, embedder, llm, settings, metrics=metrics).run(
         membership.organization_id,
         request.instruction,
         user_id=membership.user_id,

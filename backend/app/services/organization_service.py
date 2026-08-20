@@ -26,9 +26,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import AuthorizationError, ConflictError, NotFoundError
+from app.models.event import EventType
 from app.models.membership import Membership, Role
 from app.models.organization import Organization
 from app.models.user import User
+from app.services.event_service import EventService
 
 logger = structlog.get_logger(__name__)
 
@@ -62,6 +64,7 @@ class OrganizationService:
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+        self._events = EventService(session)
 
     # -- reads ------------------------------------------------------------
 
@@ -139,7 +142,12 @@ class OrganizationService:
             slug=organization.slug,
             owner_id=str(owner.id),
         )
-        # TODO(M16): write an `events` audit row here.
+        await self._events.record(
+            EventType.ORGANIZATION_CREATED,
+            organization_id=organization.id,
+            actor_user_id=owner.id,
+            slug=organization.slug,
+        )
         return organization, membership
 
     async def invite_member(
@@ -184,7 +192,17 @@ class OrganizationService:
             role=role.value,
             actor_id=str(actor.user_id),
         )
-        # TODO(M16): write an `events` audit row here.
+        # The *actor* is who did it; the person it was done to is payload. Storing
+        # the target in `actor_user_id` would make "what did this person do?"
+        # return everything done *to* them, which is the opposite question.
+        await self._events.record(
+            EventType.MEMBER_INVITED,
+            organization_id=organization_id,
+            actor_user_id=actor.user_id,
+            target_user_id=user.id,
+            email=email,
+            role=role.value,
+        )
         return membership, user
 
     async def change_role(
@@ -215,7 +233,13 @@ class OrganizationService:
             role=role.value,
             actor_id=str(actor.user_id),
         )
-        # TODO(M16): write an `events` audit row here.
+        await self._events.record(
+            EventType.MEMBER_ROLE_CHANGED,
+            organization_id=organization_id,
+            actor_user_id=actor.user_id,
+            target_user_id=target_user_id,
+            role=role.value,
+        )
         return target
 
     async def remove_member(
@@ -247,7 +271,13 @@ class OrganizationService:
             actor_id=str(actor.user_id),
             self_removal=removing_self,
         )
-        # TODO(M16): write an `events` audit row here.
+        await self._events.record(
+            EventType.MEMBER_REMOVED,
+            organization_id=organization_id,
+            actor_user_id=actor.user_id,
+            target_user_id=target_user_id,
+            self_removal=removing_self,
+        )
 
     # -- rules ------------------------------------------------------------
 

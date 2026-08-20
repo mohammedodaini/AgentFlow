@@ -1,0 +1,149 @@
+# =============================================================================
+# The deployable stack (M16). Four containers, one command:
+#
+#     docker compose -f docker-compose.prod.yml up -d
+#
+# This is not `docker-compose.yml` with different numbers, and it should not be
+# merged into it. The development file exists so a developer gets a database and
+# a cache while the application runs on the host with hot reload; this one runs
+# the application too, as it will actually be deployed. Collapsing them into one
+# file with profiles means the file everybody edits daily is the file production
+# depends on, and the first careless change is a production change.
+#
+# What this is honestly for: a single-host deploy, and a definition of "the
+# services and how they fit" that a Kubernetes manifest or an ECS task can be
+# written from. It is not a highly-available production topology — see the
+# milestone note for exactly what is missing.
+# =============================================================================
+# **A distinct project name, and M16 found out why by not having one.**
+# Compose derives the project from the directory, so this file and
+# `docker-compose.yml` produced the same one: identical container names
+# (`agentflow-postgres-1`) and, worse, the same `pgdata` volume. Bringing this
+# stack up in a checkout that had ever run `make up` silently pointed it at the
+# development database — which was visible only as
+# `InvalidPasswordError: password authentication failed`, because the volume was
+# initialised with the development password and `POSTGRES_PASSWORD` is ignored on
+# an existing data directory.
+#
+# The failure was loud. The success would not have been: with a matching password
+# this stack would have started, migrated, and served production traffic out of a
+# developer's database.
+name: agentflow-prod
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agentflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-agentflow}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # No published port. In development it is exposed so psql can reach it; here
+    # only the compose network needs it, and a database reachable from the
+    # internet is the single most common way one of these gets breached.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agentflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    # `--appendonly yes`: Redis holds the M3 refresh-token denylist and the arq
+    # queue. Losing the denylist on restart means revoked tokens work again until
+    # they expire; losing the queue means uploaded documents are never indexed and
+    # nothing reports it. Neither is catastrophic, and neither should happen on a
+    # planned restart.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./backend
+    environment: &backend_env
+      APP_ENV: ${APP_ENV:-production}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-agentflow}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-agentflow}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:?generate with openssl rand -hex 32}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:?generate with Fernet.generate_key}
+      METRICS_TOKEN: ${METRICS_TOKEN:?production refuses an open /metrics}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OAUTH_PROVIDER: ${OAUTH_PROVIDER:-live}
+      OAUTH_REDIRECT_BASE_URL: ${OAUTH_REDIRECT_BASE_URL:?the public origin}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-300}
+      STORAGE_LOCAL_PATH: /var/lib/agentflow/storage
+    # `:?` on the six above rather than a default. A missing signing key must stop
+    # the deploy at `docker compose up`, with the variable named — not at the
+    # first request, and never by falling back to a value somebody could guess.
+    volumes:
+      - storage:/var/lib/agentflow/storage
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # `/health/ready`, not `/health/live`. Ready probes its dependencies, so a
+      # container that started but cannot reach Postgres is reported as what it
+      # is instead of sitting in the load balancer answering 500s.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/v1/health/ready').status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      # Generous, because the first request opens a connection pool and imports
+      # the model SDKs. A start period shorter than real startup produces a
+      # restart loop that looks exactly like a crash.
+      start_period: 30s
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./backend
+    # The same image as the API, a different command. Two images would mean two
+    # things to build, two to scan and two that can drift — and the worker imports
+    # the same services the API does, so there is nothing to leave out.
+    command: ["arq", "app.workers.settings.WorkerSettings"]
+    environment: *backend_env
+    volumes:
+      - storage:/var/lib/agentflow/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+    environment:
+      # `api`, not `localhost`. The frontend calls the backend from the *server*
+      # (ADR-0016: the browser never talks to the API directly), so this resolves
+      # on the compose network rather than in anybody's browser.
+      BACKEND_URL: http://api:8000
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  storage:

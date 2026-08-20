@@ -20,6 +20,7 @@ import structlog
 from fastapi import FastAPI
 
 from app.api.errors import register_exception_handlers
+from app.api.metrics import router as metrics_router
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.db.redis import create_redis_client
@@ -27,8 +28,12 @@ from app.db.session import create_engine, create_session_factory
 from app.integrations import create_oauth_registry
 from app.llm import create_llm
 from app.logging.config import configure_logging
+from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.request_id import RequestIDMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.timing import TimingMiddleware
+from app.monitoring.metrics import MetricsRegistry
+from app.monitoring.sentry import configure_sentry
 from app.rag.embeddings import create_embedder
 from app.storage import create_storage
 from app.workers.queue import create_queue
@@ -85,6 +90,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # spend a TLS handshake on every answer.
     app.state.llm = create_llm(settings)
 
+    # M16: counters for this process. Per-application rather than a module-level
+    # registry, so two apps in one test process do not share numbers — the same
+    # argument `create_app()` itself rests on.
+    app.state.metrics = MetricsRegistry()
+
     # Note: apart from the queue, nothing connects yet. The other clients pool
     # lazily, so a dependency that is down does not stop the process from
     # starting — /health/ready is what reports that, and an orchestrator can
@@ -114,10 +124,27 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Middleware order matters. Starlette wraps outward, so the LAST one
-    # registered is the OUTERMOST. RequestID must be outermost: it sets the
-    # contextvar that TimingMiddleware's log line depends on.
+    # M16: unhandled exceptions to Sentry, if a DSN is configured. Before the app
+    # is built, because an error during startup is one of the more useful ones to
+    # have reported.
+    configure_sentry(settings)
+
+    # Middleware order matters, and M16 made it matter more. Starlette wraps
+    # outward, so the LAST one registered is the OUTERMOST. Reading inside-out:
+    #
+    #   RequestID          outermost — sets the contextvar everything else logs
+    #   SecurityHeaders    outside the limiter, so a 429 is hardened too
+    #   RateLimit          before any work happens, after the request has an id
+    #   Timing             measures only what was actually executed
+    #
+    # SecurityHeaders being *outside* RateLimit is the one that is easy to get
+    # wrong: the limiter short-circuits with its own response, and a headers
+    # middleware registered inside it would never see that response — so the one
+    # reply an abusive client receives most often would be the only unhardened
+    # one in the application.
     app.add_middleware(TimingMiddleware)
+    app.add_middleware(RateLimitMiddleware, settings=settings)
+    app.add_middleware(SecurityHeadersMiddleware, production=settings.env == "production")
     app.add_middleware(RequestIDMiddleware)
 
     # Maps the domain exception hierarchy (app/core/exceptions.py) onto HTTP
@@ -127,6 +154,9 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     app.include_router(api_router, prefix="/api/v1")
+    # At the root, not under /api/v1: a scrape endpoint is infrastructure rather
+    # than product, and moving it in a v2 would silently stop every dashboard.
+    app.include_router(metrics_router)
 
     return app
 

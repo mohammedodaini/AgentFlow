@@ -54,8 +54,10 @@ from app.integrations import OAuthRegistry
 from app.llm.base import LLMProvider
 from app.models.agent_run import AgentRun, RunStatus
 from app.models.approval import Approval, ApprovalStatus
+from app.models.event import EventType
 from app.rag.embeddings import EmbeddingProvider
 from app.services.agent_service import AgentService
+from app.services.event_service import EventService
 
 logger = structlog.get_logger(__name__)
 
@@ -78,6 +80,7 @@ class ApprovalService:
         # caller is unchanged.
         self._agents = agents or AgentService(session, embedder, llm, settings)
         self._settings = settings
+        self._events = EventService(session)
 
     # -- proposing --------------------------------------------------------
 
@@ -150,6 +153,18 @@ class ApprovalService:
             run_id=str(run.id),
             organization_id=str(organization_id),
             kind=action.get("kind"),
+        )
+        # The *agent run* is the actor here — an agent asked for permission, and
+        # `Event` has two actor columns precisely so that is expressible. The
+        # summary rather than the action: the action can carry a message body, and
+        # `EventService` would redact it anyway.
+        await self._events.record(
+            EventType.APPROVAL_REQUESTED,
+            organization_id=organization_id,
+            actor_agent_run_id=run.id,
+            approval_id=approval.id,
+            kind=action.get("kind"),
+            summary=summary,
         )
         return approval
 
@@ -233,6 +248,20 @@ class ApprovalService:
         # The same lesson M9 learned about run rows ("committed before the graph
         # starts, deliberately"), reached from the other direction: a record of a
         # human decision must survive the failure of the thing it authorised.
+        # Recorded here, *inside* the same commit as the decision — not after it.
+        # An earlier draft added the event below the commit and a second commit
+        # with it, which works and is two round trips for a guarantee the ordering
+        # already gave. Flushing before the commit means the decision and the
+        # record of it land together or not at all, which is the property the
+        # paragraph above is about.
+        await self._events.record(
+            EventType.APPROVAL_APPROVED,
+            organization_id=organization_id,
+            actor_user_id=user_id,
+            actor_agent_run_id=approval.agent_run_id,
+            approval_id=approval.id,
+            summary=approval.summary,
+        )
         await self._session.commit()
 
         logger.info("approval.approved", approval_id=str(approval.id), decided_by=str(user_id))
@@ -271,6 +300,14 @@ class ApprovalService:
         await self._session.flush()
 
         logger.info("approval.rejected", approval_id=str(approval.id), decided_by=str(user_id))
+        await self._events.record(
+            EventType.APPROVAL_REJECTED,
+            organization_id=organization_id,
+            actor_user_id=user_id,
+            actor_agent_run_id=approval.agent_run_id,
+            approval_id=approval.id,
+            reason=reason,
+        )
         return approval
 
     async def expire_overdue(self, organization_id: uuid.UUID) -> int:

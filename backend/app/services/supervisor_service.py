@@ -47,6 +47,7 @@ from app.core.exceptions import ConflictError
 from app.llm.base import LLMProvider
 from app.models.agent_run import AgentRun, RunStatus
 from app.models.approval import Approval
+from app.monitoring.metrics import MetricsRegistry
 from app.rag.embeddings import EmbeddingProvider
 from app.repositories.agent_run_repository import AgentRunRepository
 from app.services.agent_service import AgentService
@@ -82,10 +83,11 @@ class SupervisorService:
         llm: LLMProvider,
         settings: Settings,
         router: Router | None = None,
+        metrics: MetricsRegistry | None = None,
     ) -> None:
         self._session = session
         self._runs = AgentRunRepository(session)
-        self._agents = AgentService(session, embedder, llm, settings)
+        self._agents = AgentService(session, embedder, llm, settings, metrics=metrics)
         # One `AgentService`, shared. Two over the same session would work and
         # would mean two objects holding two repositories over one transaction —
         # untidy rather than wrong, and the kind of untidy that becomes wrong the
@@ -155,7 +157,7 @@ class SupervisorService:
 
         run = await self._agents.reload(run_id)
         await self._runs.add_steps(run, steps)
-        await self._runs.finish(
+        await self._agents.finish(
             run,
             RunStatus.SUCCEEDED,
             output={"agent": state.get("agent"), "plan": plan, "reason": reason},

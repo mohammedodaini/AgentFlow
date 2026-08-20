@@ -16,6 +16,7 @@ from app.api.v1.routes import (
     auth,
     conversations,
     documents,
+    events,
     generation,
     health,
     integrations,
@@ -38,6 +39,7 @@ api_router.include_router(conversations.router)
 api_router.include_router(memories.router)
 api_router.include_router(integrations.router)
 api_router.include_router(approvals.router)
+api_router.include_router(events.router)
 
 # Every milestone through M12 is now registered. M14 adds more integrations, and
 # M16 adds the operational surfaces (metrics, rate limits).

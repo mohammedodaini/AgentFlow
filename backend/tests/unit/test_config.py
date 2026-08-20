@@ -42,7 +42,7 @@ def enter_production(monkeypatch: pytest.MonkeyPatch) -> None:
     encryption key at M11 — and each addition breaks every older test that merely
     set `APP_ENV`. Collecting them here means the next guard is one edit rather
     than a hunt through the suite for tests that claim to be production and are no
-    longer allowed to be. It has now paid for itself three times.
+    longer allowed to be. It has now paid for itself four times.
 
     Tests *about* a specific guard do not use this; they set the one variable they
     are asserting on, so the failure they trigger is unambiguous.
@@ -58,6 +58,9 @@ def enter_production(monkeypatch: pytest.MonkeyPatch) -> None:
     # SECRET_KEY — production refuses all three of "placeholder", "missing" and
     # "same as the signing key", and this helper has to clear every one.
     monkeypatch.setenv("TOKEN_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    # M16. `/metrics` publishes traffic rates, error counts, latency and spend,
+    # and production refuses to serve that unauthenticated.
+    monkeypatch.setenv("METRICS_TOKEN", "metrics-token-not-a-real-one")
 
 
 def test_app_env_maps_to_env_field(monkeypatch: pytest.MonkeyPatch) -> None:

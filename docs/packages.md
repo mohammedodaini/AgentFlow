@@ -89,8 +89,26 @@ signature verification, which is the one thing worth not hand-rolling.
 | Package | Why | Req | Alternatives | Popularity |
 |---|---|---|---|---|
 | structlog | Structured (JSON) logging with bound context (request_id, org_id) | ✅ | loguru (pretty, less structured), stdlib logging (verbose) | Production standard |
-| sentry-sdk | Error tracking with traces | 🔶 | rollbar, honeybadger | Dominant |
-| opentelemetry-* | Distributed tracing incl. LLM spans | 🔶 | langsmith/langfuse (LLM-specific) | Industry standard |
+| sentry-sdk[fastapi] | Error tracking. **M16, and optional at runtime**: no `SENTRY_DSN`, no init, and the import is deferred so a deployment without an account never pays it | ✅ | rollbar, honeybadger | Dominant |
+| opentelemetry-* | Distributed tracing incl. LLM spans | ❌ | langsmith/langfuse (LLM-specific) | Industry standard |
+| prometheus-client | Metrics registry and exposition | ❌ | hand-rolled | Standard |
+
+**M16 declined both of the ❌ rows, and each for its own reason.**
+
+*OpenTelemetry* is for tracing *between* services, and there is one. `/metrics`
+plus structured logs carrying a request id already answer "is it up, is it slow,
+what is erroring"; a trace exporter would add a collector to run and a sampling
+bill to pay for spans nobody would follow across a boundary that does not exist.
+
+*prometheus-client* is the obvious dependency and the right one for most
+projects. Its real value — process collectors, multiprocess mode, a global default
+registry — is value this deployment cannot use: one uvicorn process per container,
+scaled by adding containers. The global registry is the active objection, because
+a module-level singleton means two apps in one test process share counters, which
+is exactly what `create_app()` exists to prevent. The exposition format is a
+documented text protocol; `app/monitoring/metrics.py` emits it in about a hundred
+lines, with no summaries, no exemplars and no OpenMetrics. Take the dependency if
+those are ever needed (ADR-0019).
 
 ## Testing & quality
 | Package | Why | Req | Alternatives | Popularity |
