@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+/**
+ * Tokens, not hard-coded colours.
+ *
+ * Every surface below is referenced by name from components, so the day this
+ * product needs a dark theme it is a block of overrides here rather than a search
+ * for `bg-white` across every file.
+ */
+@theme {
+  --color-canvas: oklch(99% 0.002 250);
+  --color-surface: oklch(100% 0 0);
+  --color-border: oklch(92% 0.004 250);
+  --color-ink: oklch(24% 0.01 250);
+  --color-muted: oklch(52% 0.012 250);
+  --color-accent: oklch(52% 0.16 258);
+  --color-accent-ink: oklch(99% 0.002 250);
+  --color-danger: oklch(52% 0.18 20);
+  --color-warn-bg: oklch(96% 0.05 90);
+  --color-warn-border: oklch(84% 0.09 85);
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+}

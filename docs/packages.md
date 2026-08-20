@@ -33,6 +33,16 @@ added at its milestone. "Popularity" = rough industry adoption for this role.
 | authlib | OAuth 2.0 client flows for Google/Slack/Notion/GitHub | ✅ | requests-oauthlib (sync), hand-rolled (don't) | Leading OAuth lib |
 | cryptography | Encrypt OAuth tokens at rest (Fernet). **Declared explicitly at M11** rather than inherited through authlib — a transitive dependency is one an upstream upgrade can remove, and discovering that at import time in production is a deploy failing for a reason nobody changed | ✅ | none serious | Standard |
 
+## Frontend (M13)
+| Package | Why | Req | Alternatives | Popularity |
+|---|---|---|---|---|
+| next | App Router, Server Components and Server Actions. The Server Action is not a convenience here — it is what keeps the password out of the client bundle and makes `revalidatePath` available, which is what keeps the UI honest after a write (ADR-0016) | ✅ | Remix, SvelteKit, a Vite SPA (would force tokens into the browser) | Dominant |
+| react / react-dom | 19, for `useActionState` — the pending state that stops a slow agent turn being submitted twice | ✅ | — | Standard |
+| tailwindcss | 4. Design tokens in one `@theme` block; no component library vendored (see frontend/README.md) | ✅ | CSS modules, vanilla-extract | Standard |
+| typescript | `strict`, matching the backend's `mypy --strict` | ✅ | none serious | Standard |
+| server-only | One import that turns "this must never reach the browser" into a *build error*. Three lines of package for the guarantee that `api.ts` cannot be imported by a Client Component | ✅ | a lint rule (advisory, not enforced) | Standard |
+| playwright | The smoke test. `pnpm build` proves it compiles; only a browser proves somebody can use it — and three of its assertions (httpOnly, `document.cookie`, no `checkpoint` leak) would regress silently | dev | Cypress (heavier), Puppeteer (no cross-browser) | Leading |
+
 ## Redis & background work
 | Package | Why | Req | Alternatives | Popularity |
 |---|---|---|---|---|

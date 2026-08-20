@@ -6,7 +6,11 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # `master`, not `main`. The scaffold said `main` and this repository's branch
+    # is `master`, so from M1 until M13 no *push* ever triggered this workflow —
+    # only pull requests did, and this project has not opened one. A CI file that
+    # never runs is worse than none: it looks like a gate.
+    branches: [master]
   pull_request:
 
 jobs:
@@ -54,3 +58,48 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
           SECRET_KEY: ci-only-secret
         run: uv run pytest
+
+  # ---------------------------------------------------------------------------
+  # M13. A separate job rather than steps appended to `backend`, for two reasons:
+  # it needs a different toolchain (pnpm, not uv) and no database at all, and
+  # keeping them apart means a backend failure and a frontend failure are
+  # distinguishable at a glance instead of being one red X.
+  #
+  # The browser smoke test is deliberately *not* here. It needs the API, the arq
+  # worker, Postgres and Redis all running together, and a CI job that stands the
+  # whole system up is a different kind of job — slower, and failing for reasons
+  # that are usually about the harness. `make smoke` is run by hand before a
+  # release until that is worth automating.
+  # ---------------------------------------------------------------------------
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        # `--frozen-lockfile` so a lockfile that drifted from package.json fails
+        # here rather than resolving to something nobody tested locally.
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build

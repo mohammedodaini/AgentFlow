@@ -56,4 +56,21 @@ migrate:         ## Apply database migrations
 makemigration:   ## Autogenerate a migration (usage: make makemigration m="add users")
 	cd backend && uv run alembic revision --autogenerate -m "$(m)"
 
+# --- Frontend (M13) -----------------------------------------------------------
+# Separate targets rather than folding the frontend into `check`, because these
+# need a different toolchain (pnpm, not uv) and `check` is what CI runs on every
+# push. A backend-only change should not wait on a Next build.
+
+web:             ## Run the frontend with hot reload (needs `make dev` too)
+	cd frontend && pnpm dev
+
+web-install:     ## Install frontend dependencies
+	cd frontend && pnpm install
+
+web-check:       ## Lint, typecheck and build the frontend
+	cd frontend && pnpm lint && pnpm typecheck && pnpm build
+
+smoke:           ## Drive the real UI in a browser — needs the whole stack running
+	cd frontend && pnpm smoke
+
 check: lint typecheck test  ## Everything CI runs — run before pushing
