@@ -17,9 +17,11 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from app.agents.supervisor.tools import RuleRouter
 from app.core.config import get_settings
 from app.db.session import create_engine, create_session_factory
 from app.evaluation.judge import create_judge
+from app.evaluation.routing_runner import RoutingReport, run_routing_eval
 from app.evaluation.runner import (
     EvalReport,
     Regression,
@@ -41,6 +43,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(prog="python -m app.evaluation", description=__doc__)
     parser.add_argument("--dataset", default="handbook", help="dataset name under data/")
     parser.add_argument(
+        "--routing-only",
+        action="store_true",
+        help="score routing and skip the RAG set (no database or model needed)",
+    )
+    parser.add_argument(
         "--save-baseline",
         action="store_true",
         help="overwrite the stored baseline with this run (only after reading the report)",
@@ -53,9 +60,67 @@ def main() -> int:
     )
     arguments = parser.parse_args()
 
-    return asyncio.run(
+    # Routing first, and deliberately: it needs no database, no ingestion and no
+    # model, so it takes milliseconds. A run that is going to fail on routing
+    # should say so before spending a minute embedding a corpus.
+    routing = _run_routing(save=arguments.save_baseline, tolerance=arguments.tolerance)
+
+    if arguments.routing_only:
+        return routing
+
+    rag = asyncio.run(
         _run(arguments.dataset, save=arguments.save_baseline, tolerance=arguments.tolerance)
     )
+
+    # Both, not the first failure: an operator fixing a regression wants to know
+    # everything that broke, not to rediscover the second problem after fixing
+    # the first.
+    return max(routing, rag)
+
+
+def _run_routing(*, save: bool, tolerance: float) -> int:
+    """Score the supervisor's router, and the single-agent control beside it."""
+    report = run_routing_eval(RuleRouter())
+    path = _write_routing_report(report)
+    regressions = compare_to_baseline(report, load_baseline(report.dataset), tolerance=tolerance)
+
+    print(f"\n{report.dataset}: {len(report.results)} examples")
+    print(f"settings: {report.settings}\n")
+
+    for name, value in report.aggregate.items():
+        print(f"  {name:<24} {value:.3f}")
+
+    if report.failures:
+        print(f"\n{len(report.failures)} example(s) routed wrongly:")
+        for result in report.failures:
+            print(
+                f"  {result.id:<32} expected {result.expected_agent}"
+                f"{result.expected_plan or ''}, got {result.actual_agent}{result.actual_plan}"
+            )
+
+    print(f"\nreport: {path}")
+
+    if regressions:
+        print(f"\nREGRESSION — routing fell more than {tolerance:.0%} below baseline:")
+        for regression in regressions:
+            print(
+                f"  {regression.metric:<24} {regression.baseline:.3f} → "
+                f"{regression.current:.3f}  ({regression.delta:+.3f})"
+            )
+    else:
+        print("\nno routing regression against baseline")
+
+    if save:
+        print(f"baseline updated: {save_baseline(report)}")
+
+    return 1 if regressions else 0
+
+
+def _write_routing_report(report: RoutingReport) -> Path:
+    REPORT_ROOT.mkdir(parents=True, exist_ok=True)
+    path = REPORT_ROOT / f"{report.dataset}-{datetime.now(UTC):%Y%m%d-%H%M%S}.json"
+    path.write_text(report.to_json() + "\n", encoding="utf-8")
+    return path
 
 
 async def _run(dataset: str, *, save: bool, tolerance: float) -> int:

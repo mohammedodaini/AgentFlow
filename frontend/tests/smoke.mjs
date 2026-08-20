@@ -76,31 +76,37 @@ const trace = await page.textContent("body");
 check("trace shows the graph nodes", trace.includes("retrieve") && trace.includes("generate"));
 check("checkpoint is never published", !trace.includes("checkpoint"));
 
-// --- propose a calendar action, then reject it ---
-// M14 put a second proposal form on this page, so the selectors are scoped to a
-// card rather than to `input[name="instruction"]` — which now matches two.
+// --- M15: one box routes everything ---
+// M14 had two labelled forms here, one per agent, and the selectors were scoped
+// to a card to tell them apart. There is one box now, which is the milestone:
+// the user no longer has to know which agent they need.
 await page.goto("http://localhost:3000/approvals");
-const calendarForm = page.locator('div:has(> h2:text-is("Draft a calendar change"))');
-await calendarForm.locator('input[name="instruction"]').fill("Schedule a design review on 2026-09-10 09:00");
-await calendarForm.locator('button:has-text("Draft it")').click();
+const ask = page.locator('input[name="instruction"]');
+
+await ask.fill("Schedule a design review on 2026-09-10 09:00");
+await page.click('button:has-text("Go")');
 await page.waitForSelector("text=/Create a calendar event/", { timeout: 30000 });
-check("the proposal appears in the inbox", (await page.textContent("body")).includes("design review"));
+check("a scheduling request reaches the calendar agent", (await page.textContent("body")).includes("design review"));
 
 await page.fill('input[name="reason"]', "Already booked.");
 await page.click('button:has-text("Reject")');
 await page.waitForTimeout(2500);
-const afterReject = await page.textContent("body");
-check("rejecting clears it from the inbox", !afterReject.includes("2026-09-10") && !afterReject.includes("10 September"));
+// `innerText`, not `textContent`. `textContent("body")` includes the contents of
+// <script> tags — which on an App Router page means the whole RSC payload, so it
+// matches strings that are nowhere on screen. Every *absence* check here was
+// quietly scanning that payload; this one started failing the moment M15's
+// placeholder text happened to contain a date the assertion looked for, which is
+// the assertion catching its own weakness rather than a regression.
+const afterReject = await page.innerText("body");
+check("rejecting clears it from the inbox", afterReject.includes("Nothing is waiting for you"));
 
-// --- M14: the email agent drafts, and sends nothing ---
-const emailForm = page.locator('div:has(> h2:text-is("Draft an email"))');
-await emailForm.locator('input[name="instruction"]').fill(
-  "Email ada@agentflow.dev about the board pack saying the numbers are final.",
-);
-await emailForm.locator('button:has-text("Draft it")').click();
+// The same box, an instruction of a completely different kind, no extra input
+// from the user about where it should go.
+await ask.fill("Email ada@agentflow.dev about the board pack saying the numbers are final.");
+await page.click('button:has-text("Go")');
 await page.waitForSelector("text=/Send an email to/", { timeout: 30000 });
 const inbox = await page.textContent("body");
-check("the email proposal reaches the inbox", inbox.includes("ada@agentflow.dev"));
+check("the same box reaches the email agent", inbox.includes("ada@agentflow.dev"));
 // The body is what actually gets sent, so it is what the person deciding must
 // see — the summary alone would be a second account of the message.
 check("the exact message is shown for review", inbox.includes("the numbers are final."));
@@ -109,12 +115,22 @@ await page.click('button:has-text("Reject")');
 await page.waitForTimeout(2500);
 check(
   "rejecting the email clears it too",
-  !(await page.textContent("body")).includes("the numbers are final."),
+  !(await page.innerText("body")).includes("the numbers are final."),
 );
+
+// An instruction nothing here can serve. The refusal has to name what the
+// product *can* do — "I cannot help" invites the user to rephrase the same
+// impossible request.
+await ask.fill("Order me a taxi to the airport");
+await page.click('button:has-text("Go")');
+await page.waitForTimeout(3000);
+const refused = await page.innerText("body");
+check("an impossible request is refused, not queued", !refused.includes("taxi to the airport"));
+check("the refusal says what the product can do", /answer questions about your documents/i.test(refused));
 
 // --- M14: integrations ---
 await page.goto("http://localhost:3000/integrations");
-const integrations = await page.textContent("body");
+const integrations = await page.innerText("body");
 check("every configured provider is offered", ["Gmail", "Google Calendar", "Slack", "Notion", "GitHub", "Stripe"].every((name) => integrations.includes(name)));
 // Google Drive is in the Provider enum and deliberately unimplemented. A button
 // leading to a 404 is worse than no button.

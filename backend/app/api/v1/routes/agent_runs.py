@@ -34,9 +34,18 @@ from app.llm import get_llm
 from app.llm.base import LLMProvider
 from app.models.agent_run import AgentRun, RunStatus
 from app.rag.embeddings import EmbeddingProvider, get_embedder
-from app.schemas.agent_run import AgentRunCreate, AgentRunRead, AgentRunSummary, AgentStepRead
+from app.schemas.agent_run import (
+    AgentRunCreate,
+    AgentRunRead,
+    AgentRunSummary,
+    AgentStepRead,
+    SupervisorRead,
+    SupervisorRequest,
+)
+from app.schemas.approval import ApprovalRead
 from app.schemas.common import Page
 from app.services.agent_service import AgentService
+from app.services.supervisor_service import SupervisorService
 
 router = APIRouter(prefix="/agent-runs", tags=["agents"])
 
@@ -77,6 +86,50 @@ async def create_run(
     )
 
     return _read(run)
+
+
+@router.post("/supervised", summary="Run whichever agent fits the instruction")
+async def create_supervised_run(
+    request: SupervisorRequest,
+    membership: CurrentMembership,
+    session: SessionDep,
+    embedder: EmbedderDep,
+    llm: LLMDep,
+    settings: SettingsDep,
+) -> SupervisorRead:
+    """**The single entry point (M15).** Say what you want; it decides who acts.
+
+    Every other agent endpoint in this API requires the caller to already know
+    which agent they need. That was the right shape while there was one agent, and
+    it made the *human* the router the moment there were three — they had to learn
+    the product's internal structure before they could use it.
+
+    Nothing here is a new path to a side effect. The supervisor classifies and
+    delegates to the same methods these other routes call, so a calendar or email
+    action still reaches a provider only through an `approvals` row a human
+    decided on. Adding an entry point must not add a capability, and this one does
+    not.
+
+    A refusal is a 200 with `delegated: null` and a `reason` naming what this
+    product *can* do. It is not a 4xx: the request was well-formed and understood,
+    and the answer is that nothing here serves it.
+    """
+    outcome = await SupervisorService(session, embedder, llm, settings).run(
+        membership.organization_id,
+        request.instruction,
+        user_id=membership.user_id,
+    )
+
+    return SupervisorRead(
+        run=_read(outcome.run),
+        delegated=_read(outcome.delegated) if outcome.delegated else None,
+        # The approval row itself, not just the action it permits. Returning the
+        # action alone was the first shape of this response, and it hid the bug
+        # M15 found at runtime: a paused run with no row behind it looked
+        # identical to a working one.
+        approval=ApprovalRead.model_validate(outcome.approval) if outcome.approval else None,
+        reason=outcome.reason,
+    )
 
 
 @router.get("", summary="List this organization's agent runs")

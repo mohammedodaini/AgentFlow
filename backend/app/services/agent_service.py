@@ -148,11 +148,11 @@ class AgentService:
             # difference between "retrieval worked and generation failed" and
             # "nothing ran at all".
             log.warning("agent.run_failed", reason=error.code)
-            await self._finish_failed(run_id, steps, error.message)
+            await self.finish_failed(run_id, steps, error.message)
             raise
         except Exception:
             log.exception("agent.run_errored")
-            await self._finish_failed(run_id, steps, "The agent failed unexpectedly. Try again.")
+            await self.finish_failed(run_id, steps, "The agent failed unexpectedly. Try again.")
             raise
 
         usage = state.get("usage", {})
@@ -237,11 +237,11 @@ class AgentService:
             )
         except Exception:
             log.exception("agent.calendar_errored")
-            await self._finish_failed(run_id, steps, "The agent failed unexpectedly. Try again.")
+            await self.finish_failed(run_id, steps, "The agent failed unexpectedly. Try again.")
             raise
 
         action = state.get("proposed_action")
-        run = await self._reload(run_id)
+        run = await self.reload(run_id)
         await self._runs.add_steps(run, steps)
 
         if action is None:
@@ -309,11 +309,11 @@ class AgentService:
             )
         except Exception:
             log.exception("agent.email_errored")
-            await self._finish_failed(run_id, steps, "The agent failed unexpectedly. Try again.")
+            await self.finish_failed(run_id, steps, "The agent failed unexpectedly. Try again.")
             raise
 
         action = state.get("proposed_action")
-        run = await self._reload(run_id)
+        run = await self.reload(run_id)
         await self._runs.add_steps(run, steps)
 
         if action is None:
@@ -397,10 +397,10 @@ class AgentService:
             # write. The run fails and says why — and the approval stays decided,
             # because a human did approve it. What failed was the execution.
             log.warning("agent.execute_failed", reason=error.code)
-            await self._finish_failed(run_id, steps, error.message)
+            await self.finish_failed(run_id, steps, error.message)
             raise
 
-        run = await self._reload(run_id)
+        run = await self.reload(run_id)
         await self._runs.add_steps(run, steps)
         # The checkpoint is cleared once used. Keeping it would leave a
         # resumable-looking run behind a terminal status, and the next person to read
@@ -457,14 +457,18 @@ class AgentService:
             output_rate=self._settings.llm_output_cost_per_mtok,
         )
 
-    async def _reload(self, run_id: uuid.UUID) -> AgentRun:
+    async def reload(self, run_id: uuid.UUID) -> AgentRun:
         """Re-fetch a run after a commit expired it.
 
         `commit()` expires every ORM object in the session, so the instance held
         across one is unusable without a refresh — the same fact that made
-        `_finish_failed` take an id rather than an object at M9. Reloading through
+        `finish_failed` take an id rather than an object at M9. Reloading through
         `session.get` rather than the repository because the caller wants the row,
         not its eagerly-loaded trace.
+
+        Public since M15: `SupervisorService` runs its own graph over the same
+        session and needs both this and `finish_failed`, which makes them part of
+        this service's API rather than its internals.
         """
         run = await self._session.get(AgentRun, run_id)
 
@@ -474,7 +478,7 @@ class AgentService:
 
         return run
 
-    async def _finish_failed(
+    async def finish_failed(
         self, run_id: uuid.UUID, steps: list[dict[str, Any]], message: str
     ) -> None:
         """Record the failure and everything that led to it.

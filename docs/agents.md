@@ -69,6 +69,21 @@ until its milestone.
   the supervisor and specialists arrive only when a single agent measurably
   fails at the breadth of tasks. Premature multi-agent architecture is the
   most common failure mode in this space.
+
+  **This precondition was met at M15, and the measurement is committed.**
+  `app/evaluation/data/routing.json` holds twenty hand-written instructions;
+  the single-agent world scores **0.300** on them and the supervisor **1.000**,
+  and both numbers are re-measured by every `make eval`. The rule above is
+  therefore still enforced rather than merely honoured: the next agent needs
+  its own evidence, not this one's.
+
+  What M15 built is the supervisor and the planner. **Research, Proposal,
+  Memory and Evaluation remain unbuilt on purpose** — the table above is a
+  design, not a checklist. Evaluation lives in a runner (M8) and memory
+  extraction in a worker task (M10), both deliberately, because neither has a
+  branch to be a graph about; Research needs a web search tool this
+  environment cannot have; Proposal is a template renderer nobody has asked
+  for.
 - **Deterministic where possible.** If code can do it (parse a date, format
   a template), code does it. LLM calls are for judgment, not plumbing.
 - **Every run is billable and traceable.** Tokens and cost recorded per run;

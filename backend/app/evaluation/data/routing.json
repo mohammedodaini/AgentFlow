@@ -1,0 +1,120 @@
+{
+  "name": "routing",
+  "description": "Which agent should take each instruction. Written by hand at M15, before the supervisor existed, so the single-agent shortfall is a measurement rather than a claim.",
+  "examples": [
+    {
+      "id": "rag-expenses",
+      "instruction": "How are expenses reimbursed?",
+      "expected_agent": "rag",
+      "note": "The plain case. A question about the organization's own documents."
+    },
+    {
+      "id": "rag-leave",
+      "instruction": "What is the notice period for annual leave?",
+      "expected_agent": "rag"
+    },
+    {
+      "id": "rag-what-does-policy-say",
+      "instruction": "What does the handbook say about home office equipment?",
+      "expected_agent": "rag"
+    },
+    {
+      "id": "rag-question-mark-absent",
+      "instruction": "Tell me the policy on stolen laptops",
+      "expected_agent": "rag",
+      "note": "A question with no question mark. A router keyed on punctuation fails this one, and people write like this constantly."
+    },
+    {
+      "id": "rag-summarise",
+      "instruction": "Summarise what we require for large purchases",
+      "expected_agent": "rag"
+    },
+    {
+      "id": "calendar-explicit",
+      "instruction": "Schedule a design review on 2026-09-10 09:00",
+      "expected_agent": "calendar",
+      "note": "The M12 case, unchanged."
+    },
+    {
+      "id": "calendar-book",
+      "instruction": "Book a one-to-one with the team on 2026-09-11 14:00",
+      "expected_agent": "calendar"
+    },
+    {
+      "id": "calendar-meeting-word",
+      "instruction": "Put a meeting in my calendar for 2026-09-12 11:30",
+      "expected_agent": "calendar"
+    },
+    {
+      "id": "email-explicit",
+      "instruction": "Email ada@example.com about the Q3 numbers saying the report is ready",
+      "expected_agent": "email",
+      "note": "The M14 case, unchanged."
+    },
+    {
+      "id": "email-send-word",
+      "instruction": "Send a note to grace@example.com about the outage saying we have restored service",
+      "expected_agent": "email",
+      "note": "'Send a note', not 'email'. A router matching only the word 'email' misses it."
+    },
+    {
+      "id": "email-write-word",
+      "instruction": "Write to ada@example.com about onboarding saying the account is ready",
+      "expected_agent": "email"
+    },
+    {
+      "id": "ambiguous-calendar-in-an-email",
+      "instruction": "Email ada@example.com about the review on 2026-09-10 09:00 saying please confirm",
+      "expected_agent": "email",
+      "note": "Contains a date AND an address. The sharpest single-route example in the set: a router scoring keywords independently sees a calendar instruction, and the user gets a meeting instead of the message they asked for."
+    },
+    {
+      "id": "ambiguous-question-about-a-meeting",
+      "instruction": "What did we agree about the design review?",
+      "expected_agent": "rag",
+      "note": "Mentions a meeting and is a question about documents. The mirror of the example above."
+    },
+    {
+      "id": "plan-answer-then-email",
+      "instruction": "Find our expenses policy and email it to ada@example.com about expenses saying here is the policy",
+      "expected_agent": "rag",
+      "expected_plan": ["rag", "email"],
+      "note": "Two agents, in order: the answer is the input to the message. A single route cannot express this, which is the whole argument for a planner."
+    },
+    {
+      "id": "plan-answer-then-schedule",
+      "instruction": "Check what the handbook says about reviews and schedule one on 2026-09-15 10:00",
+      "expected_agent": "rag",
+      "expected_plan": ["rag", "calendar"],
+      "note": "The same shape with a different second step, so a planner that hard-codes rag→email fails it."
+    },
+    {
+      "id": "none-greeting",
+      "instruction": "hello",
+      "expected_agent": "none",
+      "note": "No agent should take this. A router with no 'none' hands it to whichever specialist scored least badly."
+    },
+    {
+      "id": "none-thanks",
+      "instruction": "thanks, that's all",
+      "expected_agent": "none"
+    },
+    {
+      "id": "none-nonsense",
+      "instruction": "asdfgh qwerty",
+      "expected_agent": "none"
+    },
+    {
+      "id": "none-out-of-scope",
+      "instruction": "Order me a taxi to the airport",
+      "expected_agent": "none",
+      "note": "A perfectly clear instruction for a capability this product does not have. Refusing is the correct answer, and it is different from not understanding."
+    },
+    {
+      "id": "none-empty-ish",
+      "instruction": "   ",
+      "expected_agent": "none",
+      "note": "Whitespace. Reaches the router in practice because a form submits it."
+    }
+  ]
+}

@@ -36,6 +36,21 @@ It is also the first *irreversible* side effect in the system. A calendar event 
 be deleted; a sent email cannot be recalled from somebody else's inbox.
 """
 
-AGENT_NAMES = frozenset({RAG_AGENT, CALENDAR_AGENT, EMAIL_AGENT})
+SUPERVISOR_AGENT = "supervisor"
+"""M15: the single entry point that decides which specialist takes the work.
+
+The fourth agent, and the first that does not do any work itself. Until M15 a
+user had to know which endpoint to call — `/ask` could not schedule and
+`/agent-runs/calendar` could not answer a question — which made the human the
+router.
+
+`docs/agents.md` allows this package only when "a single agent measurably fails
+at the breadth of tasks". It does, and the measurement is committed:
+`app/evaluation/data/routing.json` scores the single-agent world at 0.300 and the
+supervisor at 1.000 over twenty hand-written instructions, re-checked by every
+`make eval`.
+"""
+
+AGENT_NAMES = frozenset({RAG_AGENT, CALENDAR_AGENT, EMAIL_AGENT, SUPERVISOR_AGENT})
 """Every agent this deployment can run. Validated at the API boundary, so an
 unknown name is a 422 rather than a run row that exists and never executes."""

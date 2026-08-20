@@ -69,9 +69,14 @@ class ApprovalService:
         embedder: EmbeddingProvider,
         llm: LLMProvider,
         settings: Settings,
+        agents: AgentService | None = None,
     ) -> None:
         self._session = session
-        self._agents = AgentService(session, embedder, llm, settings)
+        # Accepted rather than always constructed, added at M15 so
+        # `SupervisorService` can share one `AgentService` with this one instead
+        # of running two over the same session. Defaulted, so every existing
+        # caller is unchanged.
+        self._agents = agents or AgentService(session, embedder, llm, settings)
         self._settings = settings
 
     # -- proposing --------------------------------------------------------

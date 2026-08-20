@@ -288,3 +288,112 @@ async def test_asking_with_nothing_uploaded_refuses_rather_than_inventing(
     assert body["output"]["citations"] == []
     assert "could not find" in body["output"]["answer"]
     assert len(body["steps"]) > 2, "the retry path should be visible in the trace"
+
+
+# --------------------------------------------------------------------------
+# M15: one entry point
+# --------------------------------------------------------------------------
+
+
+async def supervise(
+    client: AsyncClient, headers: dict[str, str], instruction: str
+) -> dict[str, Any]:
+    response = await client.post(
+        "/api/v1/agent-runs/supervised", headers=headers, json={"instruction": instruction}
+    )
+    assert response.status_code == HTTPStatus.OK, response.text
+    body: dict[str, Any] = response.json()
+    return body
+
+
+async def test_one_endpoint_answers_a_question(client: AsyncClient) -> None:
+    """The milestone over HTTP: the caller says nothing about which agent to use.
+
+    Until M15 they had to — `/agent-runs` could not schedule and
+    `/agent-runs/calendar` could not answer — which made the human the router.
+    """
+    headers = await register(client)
+
+    body = await supervise(client, headers, "How are expenses reimbursed?")
+
+    assert body["run"]["agent_name"] == "supervisor"
+    assert body["delegated"]["agent_name"] == "rag"
+
+
+async def test_one_endpoint_schedules(client: AsyncClient) -> None:
+    headers = await register(client)
+
+    body = await supervise(client, headers, "Schedule a design review on 2026-09-10 09:00")
+
+    assert body["delegated"]["agent_name"] == "calendar"
+    assert body["delegated"]["status"] == "paused_for_approval"
+    # The approval row, not just the action. Returning the action alone was the
+    # first shape of this response and it hid the M15 runtime bug: a paused run
+    # with no row behind it looked identical to a working one.
+    assert body["approval"]["status"] == "pending"
+    assert body["approval"]["requested_action"]["kind"] == "calendar.create_event"
+    assert body["approval"]["agent_run_id"] == body["delegated"]["id"]
+
+
+async def test_one_endpoint_drafts_email(client: AsyncClient) -> None:
+    headers = await register(client)
+
+    body = await supervise(client, headers, "Email ada@example.com about Q3 saying it is ready")
+
+    assert body["delegated"]["agent_name"] == "email"
+    assert body["delegated"]["status"] == "paused_for_approval"
+    assert body["approval"]["requested_action"]["to"] == "ada@example.com"
+
+
+async def test_a_refusal_is_a_200_with_a_reason(client: AsyncClient) -> None:
+    """Not a 4xx: the request was well-formed and understood, and the answer is
+    that nothing here serves it. A 400 would tell a client to fix its request."""
+    headers = await register(client)
+
+    body = await supervise(client, headers, "Order me a taxi to the airport")
+
+    assert body["delegated"] is None
+    assert body["approval"] is None
+    assert "documents" in body["reason"]
+
+
+async def test_the_routing_decision_is_in_the_trace(client: AsyncClient) -> None:
+    """Published deliberately. "Why did it do that?" is the first question about
+    any router, and an unexplained decision is one nobody can argue with."""
+    headers = await register(client)
+
+    body = await supervise(client, headers, "Schedule a design review on 2026-09-10 09:00")
+    nodes = [step["node_name"] for step in body["run"]["steps"]]
+
+    assert nodes == ["classify", "plan"]
+    assert body["run"]["output"]["plan"] == ["calendar"]
+
+
+async def test_delegated_runs_are_listed_separately(client: AsyncClient) -> None:
+    """Both runs exist in `/agent-runs`, under their own agent names — a
+    supervised question is not a hidden sub-step of something else."""
+    headers = await register(client)
+    await supervise(client, headers, "How are expenses reimbursed?")
+
+    listing = await client.get("/api/v1/agent-runs?limit=50", headers=headers)
+    names = {item["agent_name"] for item in listing.json()["items"]}
+
+    assert {"supervisor", "rag"} <= names
+
+
+async def test_supervising_requires_authentication(client: AsyncClient) -> None:
+    response = await client.post(
+        "/api/v1/agent-runs/supervised", json={"instruction": "How are expenses reimbursed?"}
+    )
+
+    assert response.status_code in {HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN}
+
+
+async def test_an_empty_instruction_is_rejected_by_validation(client: AsyncClient) -> None:
+    headers = await register(client)
+
+    response = await client.post(
+        "/api/v1/agent-runs/supervised", headers=headers, json={"instruction": ""}
+    )
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY

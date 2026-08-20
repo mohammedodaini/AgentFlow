@@ -21,6 +21,7 @@ import type {
   Conversation,
   DocumentRead,
   Proposal,
+  Supervised,
   Turn,
 } from "@/lib/types";
 
@@ -159,6 +160,55 @@ export async function proposeEmailAction(
 
   revalidatePath("/approvals");
   return proposal.approval ? {} : { error: proposal.message ?? "Nothing to propose." };
+}
+
+/**
+ * One box for everything (M15).
+ *
+ * This replaces the two forms that stood here — "draft a calendar change" and
+ * "draft an email" — and the replacement is the whole point of the milestone.
+ * Two labelled forms made the *user* the router: they had to know which of the
+ * product's internal agents they wanted before they could type anything.
+ *
+ * A refusal comes back as a successful response with `delegated: null`, so it is
+ * surfaced as an error string here rather than thrown. The backend's `reason`
+ * names what the product can do, which is the only thing that lets somebody
+ * succeed on their next attempt.
+ */
+export async function superviseInstruction(
+  _previous: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const instruction = String(formData.get("instruction") ?? "").trim();
+
+  if (instruction === "") {
+    return { error: "Say what you would like done." };
+  }
+
+  let outcome: Supervised;
+
+  try {
+    outcome = await apiFetch<Supervised>("/agent-runs/supervised", {
+      method: "POST",
+      body: { instruction },
+    });
+  } catch (error) {
+    return explain(error);
+  }
+
+  revalidatePath("/approvals");
+
+  if (!outcome.delegated) {
+    return { error: outcome.reason };
+  }
+
+  // A question is answered rather than queued, so send the user to the run that
+  // holds the answer. Anything needing permission stays here, in the inbox.
+  if (!outcome.approval) {
+    redirect(`/runs/${outcome.delegated.id}`);
+  }
+
+  return {};
 }
 
 // --- integrations --------------------------------------------------------

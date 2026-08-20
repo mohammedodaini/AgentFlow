@@ -101,6 +101,15 @@ export interface Integration {
   created_at: string;
 }
 
+export interface Supervised {
+  run: AgentRun;
+  /** Null exactly when the supervisor refused — a success with nothing downstream. */
+  delegated: AgentRun | null;
+  /** The row a human must decide on, present when the specialist proposed a side effect. */
+  approval: Approval | null;
+  reason: string;
+}
+
 export interface ProviderRead {
   provider: string;
   /** What connecting will request permission for. Empty for Notion, which grants

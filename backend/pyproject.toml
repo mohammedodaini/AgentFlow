@@ -161,12 +161,17 @@ omit = [
     # M12 delisted `app/agents/calendar/*` and the five approval modules below.
     # M14 delisted `app/agents/email/*` — the half M12 deferred, because there was
     # no Gmail integration to draft into. There is one now.
+    # M15 delisted `app/agents/planner/*` and `app/agents/supervisor/*`. The four
+    # below stay, and each for a reason rather than for lack of time:
+    # `evaluation/` and `memory/` are graphs that were never needed — M8 put
+    # evaluation in a runner and M10 put extraction in a worker task, both
+    # deliberately, because neither has a branch to be a graph about. `research/`
+    # needs a web search tool this environment cannot have, and `proposal/` is a
+    # template renderer nobody has asked for.
     "app/agents/evaluation/*.py",
     "app/agents/memory/*.py",
-    "app/agents/planner/*.py",
     "app/agents/proposal/*.py",
     "app/agents/research/*.py",
-    "app/agents/supervisor/*.py",
     # M10 delisted twelve entries from here: `app/memory/**`, the memory
     # repository, the three new models and their schemas, the conversation
     # service and route, and the extraction task. `app/agents/memory/*` stays —

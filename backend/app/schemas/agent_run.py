@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from app.models.agent_run import RunStatus
 from app.repositories.chunk_repository import MAX_TOP_K
+from app.schemas.approval import ApprovalRead
 from app.schemas.common import APIModel
 
 
@@ -34,6 +35,23 @@ class AgentRunCreate(BaseModel):
 
     question: str = Field(min_length=1, max_length=2000)
     top_k: int = Field(default=5, ge=1, le=MAX_TOP_K)
+
+
+class SupervisorRequest(BaseModel):
+    """One instruction, with no statement of which agent should take it (M15).
+
+    The whole point: before this, a client had to know that a question went to
+    `/agent-runs`, a meeting to `/agent-runs/calendar` and a message to
+    `/agent-runs/email`. That made the human the router, and the human is worse at
+    it than a rule table — they have to learn the product's internal structure
+    before they can use it.
+    """
+
+    instruction: str = Field(
+        min_length=1,
+        max_length=2000,
+        description="Anything: a question, a meeting to schedule, an email to draft",
+    )
 
 
 class AgentStepRead(APIModel):
@@ -82,3 +100,25 @@ class AgentRunRead(AgentRunSummary):
         default=None, description="The answer and its citations; null until the run finishes"
     )
     steps: list[AgentStepRead]
+
+
+class SupervisorRead(APIModel):
+    """What a supervised instruction produced.
+
+    Two runs, deliberately. `run` is the supervisor's own — it holds the routing
+    decision and its reason, and nothing else. `delegated` is the specialist's,
+    and it is a first-class run findable in `/agent-runs` under its own agent
+    name rather than a step hidden inside this one.
+
+    `delegated` is null exactly when the supervisor refused, which is a
+    *successful* outcome with nothing downstream. `reason` says why in words a
+    user can act on.
+    """
+
+    run: AgentRunRead
+    delegated: AgentRunRead | None = None
+    approval: ApprovalRead | None = Field(
+        default=None,
+        description="The row a human must decide on, if the specialist proposed a side effect",
+    )
+    reason: str = Field(description="Why the work went where it went")

@@ -35,7 +35,7 @@ DEFINITIONS = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 
 MINIMUM_EXPECTED_IMPLEMENTED = 30
 
-MINIMUM_EXPECTED_STUBS = 12
+MINIMUM_EXPECTED_STUBS = 9
 """Lowered from 30 at M12 and from 20 at M14, and the reason matters more than the
 number.
 
@@ -55,10 +55,16 @@ Google flow, and `app/agents/email/` — taking the tree to 17 stubs, so the flo
 moved again. It is now well clear of what remains rather than tracking it, which
 is what it should have been all along.
 
-What remains unbuilt is M15 (the multi-agent packages: supervisor, planner,
-research, proposal, evaluation, memory graphs) and M16 (rate limiting, metrics,
-the audit log) — plus `app/integrations/google_drive/`, which M14 left alone
-because nothing in this product reads a file from Drive.
+M15 implemented the supervisor and the planner and left the other four alone,
+each for a reason: `evaluation/` and `memory/` are graphs that were never needed
+(M8 put evaluation in a runner, M10 put extraction in a worker task — neither has
+a branch to be a graph about), `research/` needs a web search tool this
+environment cannot have, and `proposal/` is a template renderer nobody has asked
+for.
+
+What remains is those four, M16 (rate limiting, metrics, the audit log), and
+`app/integrations/google_drive/`, which M14 left alone because nothing in this
+product reads a file from Drive.
 """
 
 DEFINITION_FREE_BUT_IMPLEMENTED = frozenset(
@@ -174,8 +180,13 @@ def test_the_manifest_still_describes_a_mostly_unbuilt_project() -> None:
     assert len(stubs) >= MINIMUM_EXPECTED_STUBS
     assert "app/main.py" in implemented
     assert "app/services/organization_service.py" in implemented
-    # A *still*-unbuilt module, deliberately re-chosen at M9: this used to name
-    # `app/agents/rag/graph.py`, which M9 implemented, and the assertion firing
-    # is what caught it. Whatever module is named here has to be one nobody is
-    # about to build — the supervisor is M15, the furthest away.
-    assert "app/agents/supervisor/graph.py" in stubs
+    # A *still*-unbuilt module, re-chosen for the second time. M9 moved it off
+    # `app/agents/rag/graph.py` and onto the supervisor, reasoning that M15 was
+    # "the furthest away" — and M15 arrived, so this assertion fired again. That
+    # is the canary working twice rather than a nuisance: it proves the classifier
+    # still tells an implemented module from a stub.
+    #
+    # `proposal/` is the better choice precisely because no milestone claims it.
+    # A canary pointing at scheduled work has an expiry date; this one only fires
+    # if somebody builds a thing nobody planned.
+    assert "app/agents/proposal/graph.py" in stubs

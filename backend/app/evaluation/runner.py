@@ -33,6 +33,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -147,6 +148,32 @@ class EvalReport:
             indent=2,
             sort_keys=True,
         )
+
+
+@runtime_checkable
+class Report(Protocol):
+    """What the regression gate needs from a report, whatever it measured.
+
+    Added at M15, when a second dataset shape arrived (`RoutingReport`). The gate
+    — compare, load, save — never looked at anything but these four members, so
+    typing it against `EvalReport` was a coincidence of there being one report.
+
+    A protocol rather than a base class: `EvalReport` and `RoutingReport` share no
+    behaviour and no fields beyond this, and inheritance would put the RAG-shaped
+    `results` list somewhere a routing report would have to explain away.
+    """
+
+    @property
+    def dataset(self) -> str: ...
+
+    @property
+    def generated_at(self) -> str: ...
+
+    @property
+    def settings(self) -> dict[str, object]: ...
+
+    @property
+    def aggregate(self) -> dict[str, float]: ...
 
 
 @dataclass(frozen=True)
@@ -358,7 +385,7 @@ def _cited_markers(answer: str) -> list[str]:
 
 
 def compare_to_baseline(
-    report: EvalReport, baseline: dict[str, float], *, tolerance: float = 0.02
+    report: Report, baseline: dict[str, float], *, tolerance: float = 0.02
 ) -> list[Regression]:
     """Which metrics fell further than `tolerance` below the baseline.
 
@@ -400,7 +427,7 @@ def load_baseline(dataset_name: str) -> dict[str, float]:
     return aggregate
 
 
-def save_baseline(report: EvalReport) -> Path:
+def save_baseline(report: Report) -> Path:
     """Write this run's aggregate as the new baseline.
 
     Never automatic. Overwriting a baseline with the current run makes every
