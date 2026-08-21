@@ -16,7 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.tokens import TokenPair, TokenService
 from app.core.exceptions import AuthenticationError, DuplicateEmailError
-from app.core.security import hash_password, needs_rehash, verify_password
+from app.core.security import (
+    hash_password_async,
+    needs_rehash,
+    verify_password_async,
+)
 from app.models.event import EventType
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest
@@ -86,7 +90,7 @@ class AuthService:
 
         user = User(
             email=email,
-            password_hash=hash_password(request.password.get_secret_value()),
+            password_hash=await hash_password_async(request.password.get_secret_value()),
             full_name=request.full_name,
         )
         self._session.add(user)
@@ -118,6 +122,27 @@ class AuthService:
         error with the same message, and the no-such-user path still performs a
         hash verification so it costs the same time as a real one.
 
+        **Every hash runs in a thread, and a production audit is what found out
+        why.** Argon2 is deliberately expensive — 36.8ms of CPU per verification
+        on this machine — and calling it directly from an `async` method runs it
+        *on the event loop*, where it blocks every other in-flight request for
+        that whole time.
+
+        Measured against a live server before the fix: 72 login attempts took
+        `/health/live` from a 3.2ms median to 60.7ms, and 400 attempts took
+        `/health/ready` to 496ms. None of that needed an account — the timing
+        equaliser above hashes for unknown emails too, which is exactly what makes
+        it a free denial of service. `ADR-0019` compounds it: one uvicorn process
+        per container means one blocked loop is the entire container, and a
+        readiness probe that crosses its timeout gets that container killed.
+
+        `verify_password_async` moves the work into a small bounded pool
+        (`app/core/security.py`), which keeps the loop responsive and caps the
+        memory — each concurrent Argon2 allocates 64 MiB, and an unbounded pool
+        peaks at 2 GB. It does **not** make a flood cheap: refusing the flood is
+        the limiter's job, and `/api/v1/auth` is now in `EXPENSIVE_PREFIXES` for
+        that reason.
+
         Deactivated accounts are rejected here too, deliberately with that same
         message. Telling a disabled user "your account is suspended" also tells
         anyone working through a stolen password list which of their guesses
@@ -129,7 +154,7 @@ class AuthService:
         user = await self._session.scalar(select(User).where(User.email == email))
 
         if user is None:
-            verify_password(password, _TIMING_EQUALISER_HASH)
+            await verify_password_async(password, _TIMING_EQUALISER_HASH)
             logger.info("auth.login_failed", reason="unknown_email")
             # `record_now`, not `record`: this raises next, and `get_db` rolls
             # back on any exception — so a flushed event would be discarded by the
@@ -146,7 +171,7 @@ class AuthService:
             )
             raise AuthenticationError(_INVALID_CREDENTIALS)
 
-        if not verify_password(password, user.password_hash):
+        if not await verify_password_async(password, user.password_hash):
             logger.info("auth.login_failed", reason="bad_password", user_id=str(user.id))
             await self._events.record_now(
                 EventType.USER_SIGN_IN_FAILED,
@@ -170,7 +195,7 @@ class AuthService:
         # only moment a hash made with older, cheaper parameters can be
         # upgraded. Users re-hash silently, one at a time, as they sign in.
         if needs_rehash(user.password_hash):
-            user.password_hash = hash_password(password)
+            user.password_hash = await hash_password_async(password)
             logger.info("auth.password_rehashed", user_id=str(user.id))
 
         logger.info("auth.login_succeeded", user_id=str(user.id))

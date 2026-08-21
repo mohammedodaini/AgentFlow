@@ -8,11 +8,16 @@ working, and that a failed login says the same thing no matter *why* it failed.
 
 from __future__ import annotations
 
+import asyncio
+import time
+from collections.abc import Awaitable
 from http import HTTPStatus
 from typing import Any
 
 import pytest
 from httpx import AsyncClient
+
+from app.core.security import hash_password, verify_password
 
 PASSWORD = "correct horse battery staple"
 EMAIL = "ada@example.com"
@@ -294,3 +299,115 @@ async def test_logout_leaves_the_access_token_working(client: AsyncClient) -> No
     response = await client.get(ME_URL, headers=auth(tokens))
 
     assert response.status_code == HTTPStatus.OK
+
+
+# --------------------------------------------------------------------------
+# Password hashing must not block the event loop
+# --------------------------------------------------------------------------
+
+
+async def _worst_loop_stall_during(work: Awaitable[Any]) -> tuple[float, float]:
+    """Run `work`, watching how long the event loop is ever unavailable.
+
+    Returns `(worst_stall_ms, work_ms)`. The watcher asks for a 1ms sleep in a
+    loop; anything much longer than that means something ran to completion on the
+    loop while it waited, which is precisely the failure being tested for.
+    """
+    stalls: list[float] = []
+    running = True
+
+    async def watch() -> None:
+        previous = time.perf_counter()
+
+        while running:
+            await asyncio.sleep(0.001)
+            now = time.perf_counter()
+            stalls.append((now - previous) * 1000)
+            previous = now
+
+    watcher = asyncio.create_task(watch())
+    await asyncio.sleep(0.01)  # let the watcher establish a baseline
+
+    started = time.perf_counter()
+    await work
+    work_ms = (time.perf_counter() - started) * 1000
+
+    running = False
+    await watcher
+
+    return max(stalls), work_ms
+
+
+async def test_signing_in_does_not_block_the_event_loop(client: AsyncClient) -> None:
+    """**A production audit found this, and it was an unauthenticated outage.**
+
+    Argon2 is deliberately expensive. Called directly from an `async` path it runs
+    *on the event loop* and stalls every other in-flight request for its whole
+    duration — and the timing equaliser in `AuthService.login` hashes for unknown
+    emails too, so no account is needed to trigger it. Measured against a live
+    server before the fix: 72 login attempts took `/health/live` from a 3.2ms
+    median to 60.7ms, and 400 took `/health/ready` to 496ms. One uvicorn process
+    per container (ADR-0019) means one blocked loop is the whole container.
+
+    The threshold is **calibrated on the machine running the test**, not a
+    constant. Argon2's cost varies by an order of magnitude between a laptop and a
+    shared CI runner, so a hard-coded millisecond figure would either be flaky
+    there or meaningless here. Asserting the stall is a *fraction of the hash* is
+    true on any hardware, and false the moment the hash runs on the loop.
+    """
+    await register(client)
+
+    # What one hash costs here, measured rather than assumed.
+    hashed = hash_password(PASSWORD)
+    started = time.perf_counter()
+    verify_password("not-the-password", hashed)
+    hash_ms = (time.perf_counter() - started) * 1000
+
+    stall_ms, _ = await _worst_loop_stall_during(
+        client.post(LOGIN_URL, json={"email": EMAIL, "password": PASSWORD})
+    )
+
+    assert stall_ms < hash_ms * 0.5, (
+        f"the event loop stalled {stall_ms:.1f}ms during a sign-in, and one hash "
+        f"costs {hash_ms:.1f}ms — the hash is running on the loop again"
+    )
+
+
+async def test_a_rejected_sign_in_does_not_block_the_event_loop(client: AsyncClient) -> None:
+    """The half that matters for abuse: **no account required.**
+
+    An attacker does not log in successfully. They guess, and the equaliser hash
+    runs for every guess — so if only the success path had been moved to a thread,
+    the denial of service would be entirely unaffected.
+    """
+    hashed = hash_password(PASSWORD)
+    started = time.perf_counter()
+    verify_password("not-the-password", hashed)
+    hash_ms = (time.perf_counter() - started) * 1000
+
+    stall_ms, _ = await _worst_loop_stall_during(
+        client.post(LOGIN_URL, json={"email": "nobody@example.com", "password": PASSWORD})
+    )
+
+    assert stall_ms < hash_ms * 0.5, (
+        f"the event loop stalled {stall_ms:.1f}ms rejecting an unknown email; "
+        f"one hash costs {hash_ms:.1f}ms"
+    )
+
+
+async def test_registering_does_not_block_the_event_loop(client: AsyncClient) -> None:
+    """Registration hashes too, and it is reachable without an account by
+    definition."""
+    hashed = hash_password(PASSWORD)
+    started = time.perf_counter()
+    verify_password("not-the-password", hashed)
+    hash_ms = (time.perf_counter() - started) * 1000
+
+    stall_ms, _ = await _worst_loop_stall_during(
+        client.post(REGISTER_URL, json={"email": "fresh@example.com", "password": PASSWORD})
+    )
+
+    assert stall_ms < hash_ms * 0.5, (
+        f"the event loop stalled {stall_ms:.1f}ms during registration; "
+        f"one hash costs {hash_ms:.1f}ms"
+    )

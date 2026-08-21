@@ -73,8 +73,28 @@ replica, and a limiter that 429s a liveness probe gets the container killed — 
 limiter causing precisely the outage it exists to prevent.
 """
 
-EXPENSIVE_PREFIXES = ("/api/v1/agent-runs", "/api/v1/ask", "/api/v1/approvals", "/api/v1/search")
-"""Paths that draw more from the bucket. See the module docstring."""
+EXPENSIVE_PREFIXES = (
+    "/api/v1/agent-runs",
+    "/api/v1/ask",
+    "/api/v1/approvals",
+    "/api/v1/search",
+    # **Added after a production audit, and it is not obvious from the name.**
+    # `/auth` looks cheap: no model call, no vector search, one indexed SELECT.
+    # It is the most CPU-expensive endpoint in the application, because Argon2 is
+    # *designed* to be — 36.8ms per verification, paid even for an email that does
+    # not exist (the timing equaliser in `AuthService.login`).
+    #
+    # At the default cost of 1 that allowed 300 password guesses a minute per
+    # address, which is 11 seconds of CPU per minute from a single unauthenticated
+    # client. At 5 it is 60 a minute, which no human reaches and a script cannot
+    # turn into a denial of service.
+    "/api/v1/auth",
+)
+"""Paths that draw more from the bucket. See the module docstring.
+
+"Expensive" means expensive *to serve*, not slow to return. The three above cost
+a model call and a vector scan; `/auth` costs a deliberately slow hash.
+"""
 
 EXPENSIVE_COST = 5
 DEFAULT_COST = 1

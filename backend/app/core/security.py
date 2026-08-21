@@ -11,7 +11,9 @@ lives one layer up, where it can change without anyone touching cryptography.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -44,6 +46,72 @@ OWASP's first recommendation.
 Deliberately not tuned by hand. Defaults track the library, whereas a number
 someone picked once in 2026 will still be sitting here, unchanged, in 2031.
 """
+
+
+MAX_HASHING_THREADS = 4
+"""How many passwords may be hashed at once, and **memory is what sets it.**
+
+Argon2id is *memory*-hard — that is the property that defeats GPUs — and
+argon2-cffi's default `memory_cost` is 65536 KiB, so **each concurrent hash
+allocates 64 MiB**. Four is 256 MiB of peak RSS, which is survivable on a small
+container. `asyncio.to_thread`'s default executor is sized `min(32, cpu_count+4)`,
+and thirty-two concurrent hashes is **2 GB** — an OOM kill on any container with a
+1 GB limit, triggered by unauthenticated traffic.
+
+Not sized from `os.cpu_count()`, which was the first attempt and is wrong for this
+deployment specifically: inside a container that returns the *host's* core count,
+not the cgroup quota. A 2-core container on a 64-core host would build a 64-thread
+pool and reserve 4 GB it does not have.
+
+Four is ample. At ~37ms a hash that is ~108 sign-ins a second, far past anything
+this application needs, and work beyond it queues rather than failing.
+"""
+
+_HASHING_POOL = ThreadPoolExecutor(max_workers=MAX_HASHING_THREADS, thread_name_prefix="argon2")
+"""Where password hashing actually runs, off the event loop.
+
+Argon2 is expensive by design — ~37ms of CPU per verification on the machine this
+was written on — and calling it from an `async` path runs it **on the event
+loop**, blocking every other in-flight request for that whole time. Measured
+before the fix: 72 sign-in attempts took `/health/live` from a 3.2ms median to
+60.7ms, and no account was needed, because the timing equaliser in
+`AuthService.login` hashes for unknown emails too.
+
+**Be clear about what this does and does not fix.** It removes head-of-line
+blocking: one sign-in can no longer stall unrelated requests, which the tests in
+`tests/e2e/test_auth.py` assert directly. It does **not** stop a flood from
+exhausting the machine — 400 hashes is 14.7 seconds of CPU wherever it runs, and
+moving CPU work between threads cannot make it cheaper. Measured with rate
+limiting disabled, the median was 496ms before this change and 521ms after it.
+
+The defence against the flood is **refusing** it, which is why `/api/v1/auth` is
+in `EXPENSIVE_PREFIXES` (`app/middleware/rate_limit.py`). With the limiter on, the
+same 400 attempts left `/health/ready` at a 8.9ms median. This pool bounds the
+*memory* and keeps the loop responsive; the limiter bounds the work.
+
+A `ThreadPoolExecutor` rather than an `asyncio.Semaphore`: asyncio primitives bind
+to the loop that first awaits them, and this process creates a fresh loop per
+test. An executor is loop-agnostic and thread-safe, so it cannot acquire a subtle
+lifetime bug.
+"""
+
+
+async def verify_password_async(plain_password: str, password_hash: str) -> bool:
+    """`verify_password`, off the event loop and inside the bounded pool.
+
+    Every caller in an async context must use this. The synchronous version stays
+    for tests and for `needs_rehash` comparisons, where no loop is involved.
+    """
+    return await asyncio.get_running_loop().run_in_executor(
+        _HASHING_POOL, verify_password, plain_password, password_hash
+    )
+
+
+async def hash_password_async(plain_password: str) -> str:
+    """`hash_password`, off the event loop and inside the bounded pool."""
+    return await asyncio.get_running_loop().run_in_executor(
+        _HASHING_POOL, hash_password, plain_password
+    )
 
 
 def hash_password(plain_password: str) -> str:
