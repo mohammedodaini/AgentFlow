@@ -23,10 +23,10 @@
 import "server-only";
 
 import { headers as nextHeaders } from "next/headers";
+import { redirect } from "next/navigation";
 
 import { API_BASE } from "@/lib/config";
 import {
-  clearSession,
   getAccessToken,
   getOrganizationId,
   getRefreshToken,
@@ -136,7 +136,12 @@ async function refreshSession(): Promise<boolean> {
   });
 
   if (!response.ok) {
-    await clearSession();
+    // **Deliberately does not clear the session here**, and that was a real bug
+    // rather than an oversight: this runs during a Server Component render, and
+    // `cookies().delete()` there throws React error #441 — so an expired refresh
+    // token produced a crash instead of a sign-in form. The caller redirects to
+    // `/session/expired`, a Route Handler, which is a context allowed to drop
+    // them.
     return false;
   }
 
@@ -173,6 +178,27 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
 
   if (response.status === 401 && (await refreshSession())) {
     response = await send();
+  }
+
+  if (response.status === 401) {
+    // **The session is over, and that is not an error page.**
+    //
+    // `isSignedIn()` in the route-group layout only checks that a refresh cookie
+    // *exists* — it cannot tell a live token from one the backend revoked or
+    // expired. So the guard passes, the request 401s, the refresh above fails,
+    // and before this branch the failure reached the error boundary: somebody
+    // whose session had lapsed was shown "Something went wrong" instead of a
+    // sign-in form.
+    //
+    // Redirected to a **Route Handler**, not straight to `/login`, because the
+    // cookies have to be dropped and this code runs during a Server Component
+    // render, where Next forbids mutating them (React error #441). See
+    // `app/session/expired/route.ts`.
+    //
+    // `redirect` throws a control-flow error that Next handles. Callers that wrap
+    // `apiFetch` in try/catch must let it through — see `unstable_rethrow` in
+    // `actions.ts`.
+    redirect("/session/expired");
   }
 
   if (!response.ok) {

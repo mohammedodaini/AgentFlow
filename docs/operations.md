@@ -69,14 +69,28 @@ Then verify, in this order, because each step is cheap and rules out the layer
 below it:
 
 ```bash
+curl -fsS localhost:8000/api/v1/health/live      # {"status":"ok","version":"<sha>"} — the right build?
 curl -fsS localhost:8000/api/v1/health/ready     # {"status":"ready", database:true, redis:true}
 curl -sI  localhost:8000/api/v1/health/live      # Server: agentflow, nosniff, DENY
 make prod-logs                                   # no tracebacks in the first minute
-make smoke                                       # 23 checks through a real browser
+make smoke                                       # 24 checks through a real browser
 ```
 
 `make smoke` is the one that matters. The health check proves the process is up;
 the smoke test proves a person can sign in, ask a question, and get an answer.
+
+**Before a release, also run the failure drill** — separately, because it kills
+the API and so cannot live inside `make smoke`:
+
+```bash
+make boundary
+```
+
+Ten checks on what a user sees when things go wrong: a mistyped URL, a session
+the backend has revoked, and the API down mid-session. It exists because a
+production audit found there was no error boundary anywhere in the app, so an
+outage rendered Next's bare "Application error: a server-side exception has
+occurred" — no explanation, no way back, no reference to quote to support.
 
 ---
 

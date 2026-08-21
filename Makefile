@@ -104,6 +104,9 @@ web-install:     ## Install frontend dependencies
 web-check:       ## Lint, typecheck and build the frontend
 	cd frontend && pnpm lint && pnpm typecheck && pnpm build
 
+boundary:        ## Drill the failure paths — DESTRUCTIVE, kills the API (M16 audit)
+	cd frontend && node tests/boundary.mjs
+
 smoke:           ## Drive the real UI in a browser — needs the whole stack running
 	cd frontend && pnpm smoke
 

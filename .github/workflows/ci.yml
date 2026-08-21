@@ -50,14 +50,37 @@ jobs:
         run: uv run ruff format --check .
 
       - name: Type check
-        run: uv run mypy app
+        # `.`, not `app`. The local gate (`make check`) checks 255 files including
+        # every test; CI was checking 185. A production audit found the gap — a
+        # test file with a type error passed CI and failed on a developer's
+        # machine, which is the wrong way round for a gate to fail.
+        run: uv run mypy .
 
       - name: Tests
-        env:
+        env: &backend_env
           DATABASE_URL: postgresql+asyncpg://agentflow:agentflow@localhost:5432/agentflow_test
           REDIS_URL: redis://localhost:6379/0
           SECRET_KEY: ci-only-secret
         run: uv run pytest
+
+      - name: Migrations match the models
+        env: *backend_env
+        # `alembic check` asks "would autogenerate produce anything?" — which is
+        # the cheap version of "did somebody change a model and forget the
+        # migration?". That drift is invisible until a deploy runs against a real
+        # database, because `create_all` in the test fixtures papers over it.
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
+
+      - name: Evaluation gate
+        env: *backend_env
+        # `docs/agents.md`: "No prompt change ships without the evaluation harness
+        # confirming no regression on the golden set." That was true of the local
+        # `make eval` and not enforced anywhere a push could see it, which made it
+        # a convention rather than a gate. It runs the routing set first (no
+        # database, no model, milliseconds) and then the handbook set.
+        run: uv run python -m app.evaluation
 
   # ---------------------------------------------------------------------------
   # M13. A separate job rather than steps appended to `backend`, for two reasons:

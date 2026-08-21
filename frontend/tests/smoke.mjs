@@ -41,6 +41,15 @@ const page = await browser.newPage();
 page.on("pageerror", (e) => fail.push(`console error: ${e.message}`));
 
 // --- register through the real form (a Server Action) ---
+// --- a mistyped URL ---
+// First, because it needs no session. The destructive half of this — an API
+// outage, a revoked session — lives in tests/boundary.mjs, which kills the API
+// and so cannot run alongside the rest of this file.
+await page.goto("http://localhost:3000/no-such-page");
+const missing = await page.innerText("body");
+check("a 404 names the product rather than showing Next's default",
+  /Page not found/.test(missing) && !/This page could not be found/.test(missing));
+
 await page.goto("http://localhost:3000/register");
 await page.fill('input[name="full_name"]', "Ada Lovelace");
 await page.fill('input[name="email"]', EMAIL);
@@ -174,6 +183,8 @@ await page.setInputFiles('input[type="file"]', {
 await page.click('button:has-text("Upload")');
 await page.waitForSelector("text=policy.txt", { timeout: 20000 });
 check("the upload appears", (await page.textContent("body")).includes("policy.txt"));
+
+// --- signed out ---
 
 // --- sign out, and the guard ---
 await page.click('button:has-text("Sign out")');

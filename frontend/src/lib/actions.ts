@@ -12,7 +12,7 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 
 import { ApiError, apiFetch, apiUpload } from "@/lib/api";
 import type {
@@ -38,6 +38,13 @@ export interface ActionResult {
  * trace or a connection string in front of a user.
  */
 function explain(error: unknown): ActionResult {
+  // **Let Next's own control flow through, first.** `redirect` and `notFound`
+  // work by throwing, and `apiFetch` now redirects to /login when a session has
+  // lapsed. Caught here, that redirect would be swallowed and rendered as
+  // "Could not reach the server" — the user stranded on a form that will never
+  // succeed, with a message describing a problem that does not exist.
+  unstable_rethrow(error);
+
   if (error instanceof ApiError) {
     return { error: error.message };
   }
