@@ -15,6 +15,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Compose reads `.env` from the project root by itself; this script does not, and
+# it needs API_PORT for the readiness check below. Without this the health poll
+# hits port 8000 while the stack is published on whatever `.env` says, and a
+# perfectly good rollback reports failure after sixty seconds.
+if [[ -f .env ]]; then
+  # shellcheck disable=SC1091
+  set -a && . ./.env && set +a
+fi
+
 VERSION="${1:-}"
 
 if [[ -z "$VERSION" ]]; then

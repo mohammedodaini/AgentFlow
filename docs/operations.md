@@ -92,6 +92,41 @@ pressure, from a tree that has moved on, is how a bad deploy becomes a bad
 afternoon. The script waits for `/health/ready` and fails loudly if it does not
 come back within 60 seconds.
 
+### This has been rehearsed
+
+A rollback path nobody has exercised is a hypothesis. On 2026-08-21 the drill was
+run end to end against the container stack: two real builds from two real
+commits, deploy the newer, roll back to the older.
+
+```
+make prod-versions            85dff8c  ·  e0e8804
+
+APP_VERSION=85dff8c make prod-deploy
+  /health/live                {"status":"ok","version":"85dff8c"}
+
+make prod-rollback VERSION=e0e8804
+  ready on e0e8804
+  api     agentflow/api:e0e8804   Up (healthy)
+  web     agentflow/web:e0e8804   Up
+  worker  agentflow/api:e0e8804   Up
+  /health/live                {"status":"ok"}     ← no version field: that build predates it
+  /health/ready               {"status":"ready", database:true, redis:true}
+  make smoke                  23/23
+```
+
+Two things are worth reading twice. The rolled-back build answers `/health/live`
+*without* a `version` field, because the field did not exist at that commit — the
+absence is the proof that this is genuinely the older image and not a cached
+newer one. And **23/23 smoke checks passed on the rolled-back build against the
+newer schema**, which is the expand/contract rule holding rather than being
+asserted: the `events` table added by the later release was already there, and
+the earlier code neither knew nor cared.
+
+Rehearse it again whenever the deploy shape changes. The first run of the release
+script failed twice — once demanding production secrets to build an image, once
+polling the wrong port — and both would have been discovered during an incident
+instead.
+
 **If the release contained a migration that was not backward compatible**, this
 is the wrong tool. Restore instead:
 
