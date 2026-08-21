@@ -28,7 +28,18 @@ NAME="${1:-}"
 
 echo "building agentflow ${VERSION}$([[ -n "$NAME" ]] && echo " (${NAME})")"
 
-APP_VERSION="$VERSION" docker compose -f docker-compose.prod.yml build api web
+# `docker build` directly, NOT `docker compose build`, and the first attempt at
+# this script got it wrong. Compose interpolates the entire file before doing
+# anything, so building through it demanded SECRET_KEY, TOKEN_ENCRYPTION_KEY,
+# POSTGRES_PASSWORD and the rest — the `:?` guards that make a *deploy* fail
+# loudly also made a *build* impossible without them.
+#
+# That is backwards, and it matters beyond convenience: a build machine that
+# needs the production signing key is a build machine that can be compromised for
+# the production signing key. Building an image requires a source tree and
+# nothing else, and this keeps it that way.
+docker build -t "agentflow/api:${VERSION}" backend
+docker build -t "agentflow/web:${VERSION}" frontend
 
 if [[ -n "$NAME" ]]; then
   docker tag "agentflow/api:${VERSION}" "agentflow/api:${NAME}"
