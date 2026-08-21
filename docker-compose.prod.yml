@@ -67,6 +67,17 @@ services:
     restart: unless-stopped
 
   api:
+    # **Tagged, and that tag is the rollback path.**
+    #
+    # `build:` alone produces an anonymous image that only exists as "whatever the
+    # working tree compiled to last time". There is then nothing to roll back
+    # *to*: recovering a bad deploy means checking out the old commit and
+    # rebuilding, under pressure, and hoping the result matches what was running.
+    #
+    # With a tag, `APP_VERSION=<previous sha> docker compose up -d` re-runs an
+    # image that already exists and was already verified. No rebuild, no network,
+    # no resolver — see docs/operations.md.
+    image: agentflow/api:${APP_VERSION:-dev}
     build:
       context: ./backend
     environment: &backend_env
@@ -84,6 +95,10 @@ services:
       OAUTH_REDIRECT_BASE_URL: ${OAUTH_REDIRECT_BASE_URL:?the public origin}
       SENTRY_DSN: ${SENTRY_DSN:-}
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-300}
+      # Which build this is, readable from inside the container. `docker ps` shows
+      # the tag, but a process that can report its own version is what makes
+      # "which code produced this log line?" answerable from the log line.
+      APP_VERSION: ${APP_VERSION:-dev}
       STORAGE_LOCAL_PATH: /var/lib/agentflow/storage
     # `:?` on the six above rather than a default. A missing signing key must stop
     # the deploy at `docker compose up`, with the variable named — not at the
@@ -112,6 +127,10 @@ services:
     restart: unless-stopped
 
   worker:
+    # The same tag as the API, deliberately: they are one image with two commands
+    # (see below), and two tags would let them drift apart on a partial rollback —
+    # a worker running yesterday's code against today's schema.
+    image: agentflow/api:${APP_VERSION:-dev}
     build:
       context: ./backend
     # The same image as the API, a different command. Two images would mean two
@@ -129,6 +148,7 @@ services:
     restart: unless-stopped
 
   web:
+    image: agentflow/web:${APP_VERSION:-dev}
     build:
       context: ./frontend
     environment:

@@ -41,6 +41,28 @@ prod-down:       ## Stop the container stack, keeping its volumes
 prod-logs:       ## Follow the API and worker logs
 	docker compose -f docker-compose.prod.yml logs -f api worker
 
+release:         ## Build and tag images from HEAD — refuses a dirty tree
+	scripts/release.sh $(NAME)
+
+prod-deploy:     ## Run a tagged build: APP_VERSION=<sha> make prod-deploy
+	docker compose -f docker-compose.prod.yml up -d --no-build
+
+prod-rollback:   ## Roll back to an existing image: make prod-rollback VERSION=<sha>
+	scripts/rollback.sh $(VERSION)
+
+prod-versions:   ## Which builds this host can roll back to
+	@docker images "agentflow/api" --format '{{.Tag}}\t{{.CreatedSince}}\t{{.Size}}'
+
+prod-backup:     ## pg_dump the running stack to backups/ — run BEFORE migrating
+	@mkdir -p backups
+	@f=backups/agentflow-$$(date +%Y%m%d-%H%M%S).sql; \
+	docker compose -f docker-compose.prod.yml exec -T postgres \
+	  pg_dump -U $${POSTGRES_USER:-agentflow} $${POSTGRES_DB:-agentflow} > $$f; \
+	echo "wrote $$f ($$(wc -c < $$f) bytes)"
+
+prod-migrate:    ## Apply migrations inside the running API container
+	docker compose -f docker-compose.prod.yml exec -T api alembic upgrade head
+
 loadtest:        ## Measure latency and error rate against a running API (M16)
 	cd backend && uv run python ../scripts/loadtest.py
 

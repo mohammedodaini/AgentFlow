@@ -17,6 +17,7 @@ before any dangerous action.
 | [docs/agents.md](docs/agents.md) | Multi-agent AI architecture |
 | [docs/packages.md](docs/packages.md) | Every dependency, why, and alternatives |
 | [docs/roadmap.md](docs/roadmap.md) | Milestone-by-milestone learning roadmap |
+| [docs/operations.md](docs/operations.md) | Deploy, roll back, restore, and triage a live stack |
 | [docs/adr/](docs/adr/) | Architecture Decision Records |
 
 ## Quickstart (once Milestone 1 lands)

@@ -49,3 +49,4 @@ frontend/.env*
 *.sqlite3
 pgdata/
 backend/.venv/
+backups/

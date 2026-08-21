@@ -11,11 +11,12 @@ readiness. Conflating them means a brief database blip restarts every pod.
 from __future__ import annotations
 
 from http import HTTPStatus
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
 
+from app.core.config import Settings, get_settings
 from app.db.deps import get_session_factory
 from app.db.redis import get_redis
 from app.monitoring.health import check_readiness
@@ -27,16 +28,25 @@ class LivenessResponse(BaseModel):
     """Deliberately local rather than in schemas/: nothing else shares it."""
 
     status: Literal["ok"] = "ok"
+    version: str = "dev"
+    """Which build answered. Unauthenticated, and that is a considered choice:
+    a git SHA tells an attacker which commit is deployed, and this repository is
+    private. Weigh it again if the source is ever public — the cost is that
+    verifying a deploy or a rollback stops being a curl."""
 
 
 @router.get("/health/live", summary="Liveness probe")
-async def health_live() -> LivenessResponse:
-    """Report that the process is alive.
+async def health_live(settings: Annotated[Settings, Depends(get_settings)]) -> LivenessResponse:
+    """Report that the process is alive, and which build it is.
 
     Touches no dependency on purpose. If this checked the database, a database
     outage would look like a dead application and get the container killed.
+
+    The version is here rather than on `/health/ready` because this is the probe
+    that always answers. During a bad deploy readiness is exactly what is failing,
+    and that is precisely when somebody needs to know which build is running.
     """
-    return LivenessResponse()
+    return LivenessResponse(version=settings.app_version)
 
 
 class ReadinessResponse(BaseModel):

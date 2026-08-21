@@ -14,7 +14,12 @@ async def test_health_live_returns_200(client: AsyncClient) -> None:
     response = await client.get("/api/v1/health/live")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    # `version` joined the payload after a production audit: "which build is
+    # actually running?" is the first question asked during a bad deploy, and
+    # inferring it from `docker ps` needs access to the host. Asserted on the
+    # whole body rather than one key, so a field added later has to be a
+    # deliberate change to this line.
+    assert response.json() == {"status": "ok", "version": "dev"}
 
 
 async def test_request_id_is_echoed_when_supplied(client: AsyncClient) -> None:

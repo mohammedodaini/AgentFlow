@@ -465,6 +465,18 @@ class Settings(BaseSettings):
     bearer is what scrapers actually support.
     """
 
+    app_version: str = "dev"
+    """Which build this is, set by `docker-compose.prod.yml` from the image tag.
+
+    Reported by `/health/live` so "which code is actually running?" is a curl
+    rather than an inference from `docker ps` on a host you may not have. That
+    question is the first one asked during a bad deploy and the last one anybody
+    can answer from memory.
+
+    `dev` outside a container, which is honest: a process started by `make dev` is
+    whatever the working tree currently says, and no tag would describe it.
+    """
+
     sentry_dsn: str = ""
     """Where to report unhandled exceptions, or empty to report nowhere.
 
