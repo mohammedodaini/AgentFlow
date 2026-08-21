@@ -56,22 +56,30 @@ jobs:
         # machine, which is the wrong way round for a gate to fail.
         run: uv run mypy .
 
-      - name: Tests
+      - name: Migrations match the models
         env: &backend_env
           DATABASE_URL: postgresql+asyncpg://agentflow:agentflow@localhost:5432/agentflow_test
           REDIS_URL: redis://localhost:6379/0
           SECRET_KEY: ci-only-secret
-        run: uv run pytest
-
-      - name: Migrations match the models
-        env: *backend_env
-        # `alembic check` asks "would autogenerate produce anything?" — which is
-        # the cheap version of "did somebody change a model and forget the
-        # migration?". That drift is invisible until a deploy runs against a real
-        # database, because `create_all` in the test fixtures papers over it.
+        # `alembic check` asks "would autogenerate produce anything?" — the cheap
+        # version of "did somebody change a model and forget the migration?".
+        # That drift is invisible until a deploy runs against a real database,
+        # because `create_all` in the test fixtures papers over it.
+        #
+        # **Before the tests, and the order is load-bearing.** The suite builds
+        # its schema with `create_all` and never stamps `alembic_version`, so a
+        # database it has touched has every table and an empty version table —
+        # and `alembic upgrade head` then replays migration 1 into a schema that
+        # already exists and dies on `DuplicateTableError: relation
+        # "organizations" already exists`. This step was written after the tests
+        # the first time and failed for exactly that reason.
         run: |
           uv run alembic upgrade head
           uv run alembic check
+
+      - name: Tests
+        env: *backend_env
+        run: uv run pytest
 
       - name: Evaluation gate
         env: *backend_env
