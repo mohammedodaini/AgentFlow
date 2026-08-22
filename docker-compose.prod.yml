@@ -163,6 +163,33 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  backup:
+    # The same major version as the server. `pg_dump` from an older client
+    # against a newer server refuses outright; from a newer client it can emit
+    # SQL the older server cannot restore — and you find out at restore time,
+    # which is the worst possible moment to learn it.
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-agentflow}
+      POSTGRES_DB: ${POSTGRES_DB:-agentflow}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-21600}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - ./docker/backup-loop.sh:/usr/local/bin/backup-loop.sh:ro
+      # A bind mount to the host, not a named volume, and deliberately. A named
+      # volume lives inside Docker's storage — `docker volume rm`, a pruned
+      # system, or a lost daemon takes the backups with the database they were
+      # protecting against losing. On the host they are a directory somebody can
+      # rsync off the machine, which is the whole point.
+      - ${BACKUP_DIR:-./backups}:/backups
+    entrypoint: ["/bin/sh", "/usr/local/bin/backup-loop.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pgdata:
   redisdata:

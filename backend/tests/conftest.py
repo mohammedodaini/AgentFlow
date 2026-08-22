@@ -243,6 +243,16 @@ def _test_env(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> Iterat
     # broke would depend on ordering. `tests/e2e/test_rate_limit.py` turns it back
     # on deliberately, which is the only place its behaviour is asserted.
     monkeypatch.setenv("RATE_LIMIT_ENABLED", "false")
+    # **The suite must not depend on the absence of a file.** `Settings` reads
+    # `../.env` as well as `backend/.env`, so a developer who has a real `.env` at
+    # the repo root — which the deploy runbook tells them to create — gets four
+    # mystery failures in `test_hardening.py`: `METRICS_TOKEN` is set, `/metrics`
+    # starts demanding it, and tests that never sent one get 401s.
+    #
+    # Found exactly that way. Cleared here rather than in those tests, because the
+    # next setting somebody puts in `.env` would break a different file.
+    monkeypatch.delenv("METRICS_TOKEN", raising=False)
+    monkeypatch.setenv("METRICS_TOKEN", "")
 
     get_settings.cache_clear()
     yield

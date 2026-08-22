@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.lockout import LockoutGuard
 from app.auth.service import AuthService
 from app.auth.tokens import TokenPair, TokenService
 from app.db.deps import get_db
@@ -45,7 +46,12 @@ def get_auth_service(
     has no request — and keeping it that way is what lets `AuthService` be called
     from a worker or a test without inventing one.
     """
-    return AuthService(session, TokenService(redis), ip_address=client_ip(request))
+    return AuthService(
+        session,
+        TokenService(redis),
+        ip_address=client_ip(request),
+        lockout=LockoutGuard(redis),
+    )
 
 
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]

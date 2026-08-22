@@ -14,6 +14,7 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.lockout import LockoutGuard
 from app.auth.tokens import TokenPair, TokenService
 from app.core.exceptions import AuthenticationError, DuplicateEmailError
 from app.core.security import (
@@ -57,10 +58,20 @@ class AuthService:
     """
 
     def __init__(
-        self, session: AsyncSession, tokens: TokenService, *, ip_address: str | None = None
+        self,
+        session: AsyncSession,
+        tokens: TokenService,
+        *,
+        ip_address: str | None = None,
+        lockout: LockoutGuard | None = None,
     ) -> None:
         self._session = session
         self._tokens = tokens
+        # Optional so a worker or a test can build this service without a Redis
+        # handle. Absent, sign-in works exactly as before and is simply not
+        # counted — monitoring and throttling must never be able to stop the
+        # thing they protect.
+        self._lockout = lockout
         self._organizations = OrganizationService(session)
         self._events = EventService(session)
         # M16. The caller's address, for the audit trail. Passed in rather than
@@ -151,6 +162,25 @@ class AuthService:
         email = request.email
         password = request.password.get_secret_value()
 
+        if self._lockout is not None and await self._lockout.is_locked(email):
+            # Checked *before* the database and before Argon2, which is the whole
+            # economic point: a locked account costs an attacker one Redis GET
+            # rather than a 37ms hash, so the lock also stops the CPU exhaustion
+            # that made `/auth` expensive in the first place.
+            #
+            # The same message as every other rejection. "This account is locked"
+            # would confirm the address exists and tell an attacker their spray is
+            # working — the identical argument that makes the unknown-email path
+            # hash a dummy value below.
+            logger.info("auth.login_failed", reason="locked")
+            await self._events.record_now(
+                EventType.USER_SIGN_IN_FAILED,
+                ip_address=self._ip_address,
+                reason="locked",
+                email=email,
+            )
+            raise AuthenticationError(_INVALID_CREDENTIALS)
+
         user = await self._session.scalar(select(User).where(User.email == email))
 
         if user is None:
@@ -169,6 +199,7 @@ class AuthService:
                 reason="unknown_email",
                 email=email,
             )
+            await self._count_failure(email)
             raise AuthenticationError(_INVALID_CREDENTIALS)
 
         if not await verify_password_async(password, user.password_hash):
@@ -179,6 +210,7 @@ class AuthService:
                 ip_address=self._ip_address,
                 reason="bad_password",
             )
+            await self._count_failure(email)
             raise AuthenticationError(_INVALID_CREDENTIALS)
 
         if not user.is_active:
@@ -189,6 +221,7 @@ class AuthService:
                 ip_address=self._ip_address,
                 reason="inactive",
             )
+            await self._count_failure(email)
             raise AuthenticationError(_INVALID_CREDENTIALS)
 
         # Login is the only moment the plaintext password exists, so it is the
@@ -204,7 +237,25 @@ class AuthService:
         await self._events.record(
             EventType.USER_SIGNED_IN, actor_user_id=user.id, ip_address=self._ip_address
         )
+
+        if self._lockout is not None:
+            # Getting it right forgives everything before it, so somebody who
+            # mistyped twice and then pasted from a password manager never learns
+            # this feature exists.
+            await self._lockout.clear(email)
+
         return user, self._tokens.issue_pair(user.id)
+
+    async def _count_failure(self, email: str) -> None:
+        """Record one wrong answer against the account, if counting is enabled.
+
+        Counts *every* rejection, including an address that does not exist. An
+        attacker working through a leaked list must be metered whether or not each
+        address happens to be real — and counting only real ones would make the
+        lock an enumeration oracle.
+        """
+        if self._lockout is not None:
+            await self._lockout.record_failure(email)
 
     async def refresh(self, refresh_token: str) -> TokenPair:
         """Exchange a refresh token for a new pair, invalidating the old one.

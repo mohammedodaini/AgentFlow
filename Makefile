@@ -53,6 +53,9 @@ prod-rollback:   ## Roll back to an existing image: make prod-rollback VERSION=<
 prod-versions:   ## Which builds this host can roll back to
 	@docker images "agentflow/api" --format '{{.Tag}}\t{{.CreatedSince}}\t{{.Size}}'
 
+prod-restore:    ## DESTRUCTIVE — replace the database from a backup
+	scripts/restore.sh $(BACKUP)
+
 prod-backup:     ## pg_dump the running stack to backups/ — run BEFORE migrating
 	@mkdir -p backups
 	@f=backups/agentflow-$$(date +%Y%m%d-%H%M%S).sql; \

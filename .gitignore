@@ -1,52 +1,47 @@
-# --- Python ---
-__pycache__/
-*.py[cod]
-*.egg-info/
-.eggs/
-build/
-dist/
-.venv/
-venv/
 
+!.env.example
+!.vscode/extensions.json
+!.vscode/settings.json
+# --- Docker / data volumes ---
 # --- Environment / secrets (NEVER commit these) ---
+# --- IDE / OS ---
+# --- Local runtime state (M5) ---
+# --- Node / frontend ---
+# --- Python ---
+# --- Tooling caches ---
+# Uploaded document bytes land here with STORAGE_BACKEND=local. Customer files
+# a twelve-factor app generates rather than reads from configuration.
+# must never reach a repository, and `var/` is the conventional home for state
+*.egg-info/
+*.key
+*.pem
+*.py[cod]
+*.sqlite3
+.DS_Store
+.coverage
+.eggs/
 .env
 .env.*
-!.env.example
-*.pem
-*.key
-credentials*.json
-token*.json
-
-# --- Local runtime state (M5) ---
-# Uploaded document bytes land here with STORAGE_BACKEND=local. Customer files
-# must never reach a repository, and `var/` is the conventional home for state
-# a twelve-factor app generates rather than reads from configuration.
-var/
-backend/var/
-
-# --- Tooling caches ---
-.mypy_cache/
-.ruff_cache/
-.pytest_cache/
-.coverage
-coverage.xml
-htmlcov/
-
-# --- Node / frontend ---
-node_modules/
-.next/
-out/
-frontend/.env*
-
-# --- IDE / OS ---
-.vscode/*
-!.vscode/settings.json
-!.vscode/extensions.json
 .idea/
-.DS_Store
-
-# --- Docker / data volumes ---
-*.sqlite3
-pgdata/
+.mypy_cache/
+.next/
+.pytest_cache/
+.ruff_cache/
+.venv/
+.vscode/*
+__pycache__/
 backend/.venv/
+backend/var/
 backups/
+build/
+coverage.xml
+credentials*.json
+dist/
+frontend/.env*
+htmlcov/
+node_modules/
+out/
+pgdata/
+token*.json
+var/
+venv/

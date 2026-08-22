@@ -198,9 +198,17 @@ SELECT ip_address, count(*) FROM events
 WHERE event_type = 'user.sign_in_failed' AND created_at > now() - interval '1 hour'
 GROUP BY 1 ORDER BY 2 DESC LIMIT 10;
 ```
-The audit trail records every failed sign-in with its address. Nothing acts on
-this automatically — there is no lockout — so this query is currently the
-detection mechanism, and that is a known gap rather than a design.
+The audit trail records every failed sign-in with its address.
+
+An account now locks for fifteen minutes after fifteen failures — `reason:
+"locked"` in the payload marks attempts refused by it. That counts per
+**account**, not per address, because credential stuffing sprays one account from
+thousands of addresses and every one of them fits inside a per-IP budget.
+
+The trade, stated: somebody who knows a user's email address can lock that user
+out for fifteen minutes. That is accepted — the alternative is leaving the account
+guessable — and it is why the window is short and a successful sign-in clears the
+count.
 
 ---
 
@@ -208,14 +216,63 @@ detection mechanism, and that is a known gap rather than a design.
 
 `make prod-backup` writes a `pg_dump` to `backups/`, which is gitignored.
 
-**Nothing schedules this.** It is a manual step in the deploy checklist above, and
-that is the honest state: there is no automated backup, no retention policy, no
-off-host copy, and no restore drill. A single-host deploy with local backups
-survives a bad migration and does not survive a lost disk.
+A `backup` service now runs in the stack. Every six hours it writes a compressed
+dump to `backups/` on the **host** — a bind mount, not a named volume, because a
+named volume lives inside Docker's storage and `docker volume prune` would take
+the backups along with the database they exist to protect. Dumps older than
+fourteen days are pruned.
 
-If this becomes a real deployment, that is the first thing to fix — before
-replicas, before TLS, before autoscaling. Everything else costs uptime; this one
-costs the data.
+Each dump is written to `.partial` and renamed only on success. A dump interrupted
+halfway otherwise leaves a file that looks exactly like a backup and restores into
+a half-populated database; the atomic rename means every `*.sql.gz` is complete.
+
+### Restoring
+
+```bash
+scripts/restore.sh                                   # lists what is available
+scripts/restore.sh backups/agentflow-<stamp>.sql.gz  # restores that one
+```
+
+**There is no default, and a drill is what taught that.** The first version
+restored the newest backup when given no argument, which is precisely wrong in the
+situation the script exists for: backups run on a schedule, so by the time anybody
+notices the problem the scheduler has already captured it. The rehearsal wiped
+every user, ran `restore.sh` with no argument, and it faithfully restored the
+empty database — and reported success.
+
+So answer "when did this start?" *first*, then name the file from before it.
+
+### This has been rehearsed
+
+```
+6 users, 7 approvals, 25 events
+  -> backup taken
+  -> every user, approval and event removed
+  -> 0 users, 0 approvals, 0 events
+  -> scripts/restore.sh backups/agentflow-20260822T011951Z.sql.gz
+  -> 6 users, 7 approvals, 25 events
+  -> the named drill user is back, and the approval it created, summary intact
+  -> make smoke  24/24
+```
+
+The last line is the one that matters. A restore that repopulates tables but
+leaves the product broken is not a recovery.
+
+### What is still missing
+
+**No off-host copy.** `backups/` is a directory on the same machine as the
+database. That survives a bad migration, a bad deploy and a dropped table; it does
+not survive a lost disk. Point `BACKUP_DIR` at a mounted network volume, or rsync
+the directory elsewhere on a timer — either is a deployment decision rather than a
+code change, and until one is made this is a single point of failure.
+
+**No encryption at rest.** The dumps hold Fernet ciphertext for OAuth tokens (so
+those stay protected by `TOKEN_ENCRYPTION_KEY`), but everything else — addresses,
+documents, message bodies — is plaintext SQL in a directory.
+
+**Nothing verifies a backup except restoring it.** The drill above was run by
+hand. A weekly automated restore into a scratch database is the standard answer
+and is not built.
 
 ---
 
