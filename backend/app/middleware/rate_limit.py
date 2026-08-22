@@ -116,6 +116,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self._limit = settings.rate_limit_per_minute
         self._enabled = settings.rate_limit_enabled
+        self._trusted_proxy_hops = settings.trusted_proxy_hops
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         if not self._enabled or _is_exempt(request.url.path):
@@ -127,7 +128,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # No Redis on the app at all — a test app, or startup not finished.
             return await call_next(request)
 
-        identity = _identity(request)
+        identity = _identity(request, trusted_proxy_hops=self._trusted_proxy_hops)
         cost = EXPENSIVE_COST if request.url.path.startswith(EXPENSIVE_PREFIXES) else DEFAULT_COST
         window = int(time.time()) // WINDOW_SECONDS
         key = f"{KEY_PREFIX}{identity}:{window}"
@@ -187,7 +188,7 @@ def _is_exempt(path: str) -> bool:
     return path.startswith(EXEMPT_PREFIXES)
 
 
-def _identity(request: Request) -> str:
+def _identity(request: Request, *, trusted_proxy_hops: int = 0) -> str:
     """Who is being limited: a verified user id, or an IP address.
 
     The token is *verified*, not merely parsed. An unverified `sub` would let
@@ -209,29 +210,47 @@ def _identity(request: Request) -> str:
             # signal. `/auth/refresh` is where that gets handled.
             logger.debug("ratelimit.anonymous", reason="invalid_token")
 
-    return f"ip:{client_ip(request)}"
+    return f"ip:{client_ip(request, trusted_proxy_hops=trusted_proxy_hops)}"
 
 
-def client_ip(request: Request) -> str:
-    """The caller's address, trusting `X-Forwarded-For` only for its *first* entry.
+def client_ip(request: Request, *, trusted_proxy_hops: int = 0) -> str:
+    """The caller's address, counting `X-Forwarded-For` from the **right**.
 
-    A proxy appends; a client can send whatever it likes. Reading the last entry —
-    or joining them — lets a caller add fake hops and rotate through an unlimited
-    supply of identities. The first entry is the one the outermost trusted proxy
-    saw, and it is the only one worth reading.
+    `X-Forwarded-For` is a client-writable header, and how many of its entries
+    are facts depends entirely on how many proxies we put in front of ourselves.
+    Each proxy *appends* the address it received the request from, so with one
+    trusted proxy the last entry is the address that proxy actually saw and
+    everything to its left is whatever the client chose to send.
 
-    Stated honestly: this is correct **only behind a proxy that overwrites or
-    appends to the header**. Exposed directly to the internet, a client can forge
-    it outright, and the fallback below is the safe configuration.
+    `trusted_proxy_hops=0` — the default, and the correct value with nothing in
+    front — ignores the header outright and uses the peer address, which cannot
+    be forged without controlling the route to the socket.
+
+    This function read the *first* entry, unconditionally, until an audit asked
+    what happens when nobody is proxying: a caller sending a different
+    `X-Forwarded-For` on every request got a fresh rate-limit bucket every time,
+    and wrote a fictional address into the `events` audit trail while doing it.
+    Nothing detected it, because both consumers agreed with each other about a
+    value that was never trustworthy.
 
     Public because the audit trail wants the same answer this limiter does. Two
     implementations of "where did this come from" would eventually disagree, and
     the disagreement would surface as a security event attributed to the wrong
     address.
     """
-    forwarded = request.headers.get("x-forwarded-for")
+    peer = request.client.host if request.client else "unknown"
 
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    if trusted_proxy_hops <= 0:
+        return peer
 
-    return request.client.host if request.client else "unknown"
+    forwarded = request.headers.get("x-forwarded-for", "")
+    entries = [entry.strip() for entry in forwarded.split(",") if entry.strip()]
+
+    if len(entries) < trusted_proxy_hops:
+        # Fewer hops recorded than configured: a request that did not come
+        # through the proxy chain we were told to expect, or one where a hop did
+        # not append. Reading the leftmost entry here is precisely what a forged
+        # header is hoping for. The peer address is at least a fact.
+        return peer
+
+    return entries[-trusted_proxy_hops]

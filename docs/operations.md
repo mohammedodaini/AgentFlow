@@ -4,8 +4,8 @@ The gap a production audit found after M16: the stack could be deployed and had
 no documented way back. This is that way back.
 
 **Scope, honestly.** This describes a single-host Docker deploy — one replica of
-each service, no TLS termination, no managed database, no secret manager. It is
-what `docker-compose.prod.yml` actually is. Everything here is also the source a
+each service, no managed database, no secret manager. TLS *is* terminated, by
+Caddy, since ADR-0020. It is what `docker-compose.prod.yml` actually is. Everything here is also the source a
 Kubernetes or ECS runbook would be written from, because the *decisions* are the
 same and only the mechanism changes.
 
@@ -212,6 +212,95 @@ count.
 
 ---
 
+## TLS and the public origin
+
+Caddy is the only service that should ever be reachable from the internet. The
+API and the frontend publish on `127.0.0.1` so `make smoke` and `make loadtest`
+can reach them; Postgres, Redis and the worker publish nothing.
+
+```bash
+PUBLIC_DOMAIN=agentflow.example.com     # in .env, before the first deploy
+OAUTH_REDIRECT_BASE_URL=https://agentflow.example.com
+TRUSTED_PROXY_HOPS=1
+```
+
+**Before the first deploy, check three things**, because the certificate is
+obtained on the first request and a failure looks like a site that simply does
+not load:
+
+1. `PUBLIC_DOMAIN` resolves to this host in public DNS. Let's Encrypt validates
+   from the outside; a hosts-file entry is invisible to it.
+2. Port **80** is reachable from the internet. That is where the HTTP-01
+   challenge is answered, and it is required even though nothing is served over
+   HTTP afterwards.
+3. `HTTP_PORT` and `HTTPS_PORT` are left at 80 and 443. They exist so the stack
+   can be rehearsed where those ports are taken; on anything else Caddy's
+   HTTP→HTTPS redirect points at the standard port and the ACME challenge cannot
+   be answered at all.
+
+Watch the first issuance:
+
+```bash
+docker compose -f docker-compose.prod.yml logs -f caddy
+curl -sI https://$PUBLIC_DOMAIN/api/v1/health/live
+```
+
+**Renewal needs nothing.** Caddy renews at roughly two-thirds of the
+certificate's life, in process. The one thing that can break it is losing the
+`caddy_data` volume, which holds the account key and the issued certificates: a
+container that starts with an empty one re-requests everything, and Let's
+Encrypt rate-limits duplicate certificates to five per hostname per week. A
+restart loop with no volume takes the site off the air for days and no amount of
+restarting fixes it.
+
+**Rehearsing it on a laptop.** `PUBLIC_DOMAIN=localhost` makes Caddy use its own
+internal CA instead, which is how this was verified:
+
+```bash
+PUBLIC_DOMAIN=localhost HTTP_PORT=8080 HTTPS_PORT=8443 \
+  docker compose -f docker-compose.prod.yml up -d
+SMOKE_BASE_URL=https://localhost:8443 make smoke     # 24/24
+```
+
+**`/metrics` is not routable through the proxy.** It is mounted at the root and
+Caddy routes only `/api/*` to the API, so a request for it reaches Next.js and
+gets a 404. Scrape it from inside the compose network. The token check in
+`app/api/metrics.py` still applies.
+
+---
+
+## Who the caller is
+
+`TRUSTED_PROXY_HOPS` decides whether the application believes
+`X-Forwarded-For`, and it governs two things: the rate limiter's identity for
+anonymous traffic, and `events.ip_address`.
+
+| In front of the app | Value | What is read |
+|---|---|---|
+| Nothing | `0` (default) | the socket's peer address; the header is ignored |
+| Caddy, as shipped | `1` | the last entry — the one Caddy wrote |
+| A CDN in front of Caddy | `2` | the second from the right |
+
+**Getting this wrong is silent.** Too low and every caller is recorded as the
+proxy — one constant value in a column that exists to spot eighty failed
+sign-ins from one address. Too high, or trusting the header with nothing in
+front, and a caller picks their own identity: a fresh rate-limit bucket per
+request, and a fictional address in the audit trail. Neither shows up as an
+error.
+
+Check it after any change to what sits in front:
+
+```sql
+SELECT event_type, ip_address, count(*)
+FROM events WHERE created_at > now() - interval '1 hour'
+GROUP BY 1, 2 ORDER BY 3 DESC;
+```
+
+One address for everything, matching a container's IP, means the count is too
+low. See ADR-0020.
+
+---
+
 ## Backups
 
 `make prod-backup` writes a `pg_dump` to `backups/`, which is gitignored.
@@ -289,3 +378,18 @@ rotating the encryption key makes every stored OAuth token undecryptable. Neithe
 has a migration path yet.
 
 **No on-call rotation or escalation.** There is one operator.
+
+**No penetration test.** The gates check what somebody thought to check.
+
+**Supply chain, and what it does not cover.** `.github/workflows/ci.yml` runs a
+secret scan over the whole history, `pip-audit` against the exported lockfile,
+`pnpm audit` at high and above, and `uv lock --check` — weekly as well as on
+every push, because a vulnerability is published against code that has not
+changed. `.github/dependabot.yml` opens the PRs that clear it.
+
+None of that verifies that a package *is what it claims to be*. There is no
+signature verification, no provenance attestation and no vendored mirror; a
+compromised upstream release with no advisory filed passes every one of these
+checks. GitHub Actions are pinned by major tag rather than by commit SHA, which
+is the weaker of the two options and the one that keeps getting updated —
+`dependabot.yml` says why.

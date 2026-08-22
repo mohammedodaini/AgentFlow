@@ -15,8 +15,8 @@
 import { chromium } from "playwright";
 import { execSync } from "node:child_process";
 
-const WEB = "http://localhost:3000";
-const API = "http://localhost:8000";
+const WEB = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
+const API = process.env.SMOKE_API_URL ?? "http://localhost:8000";
 const PASSWORD = "correct-horse-battery-staple";
 
 const b = await chromium.launch();

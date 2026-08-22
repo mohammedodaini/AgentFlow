@@ -29,6 +29,18 @@
  */
 import { chromium } from "playwright";
 
+/**
+ * Where to point the browser. `SMOKE_BASE_URL` overrides it, which is what
+ * lets this run against the containerised stack behind Caddy
+ * (`https://localhost:8443`) as well as against `make web` on the host.
+ *
+ * It was a hard-coded literal in six places, and the M16 note records somebody
+ * editing them by hand to reach port 3001. A constant a person edits before
+ * each run is a constant that eventually gets committed pointing somewhere
+ * nobody expects.
+ */
+const BASE = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
+
 const EMAIL = `browser-${Date.now()}@example.com`;
 const PASSWORD = "correct-horse-battery-staple";
 const ok = [];
@@ -37,7 +49,11 @@ const check = (name, cond, detail = "") =>
   cond ? ok.push(name) : fail.push(`${name} ${detail}`);
 
 const browser = await chromium.launch();
-const page = await browser.newPage();
+// `ignoreHTTPSErrors` only matters when SMOKE_BASE_URL is the containerised
+// stack: Caddy serves `localhost` with a certificate from its own internal CA,
+// which no browser trusts by default. Against a real hostname the certificate
+// is a public one and this changes nothing.
+const page = await browser.newPage({ ignoreHTTPSErrors: true });
 page.on("pageerror", (e) => fail.push(`console error: ${e.message}`));
 
 // --- register through the real form (a Server Action) ---
@@ -45,12 +61,12 @@ page.on("pageerror", (e) => fail.push(`console error: ${e.message}`));
 // First, because it needs no session. The destructive half of this — an API
 // outage, a revoked session — lives in tests/boundary.mjs, which kills the API
 // and so cannot run alongside the rest of this file.
-await page.goto("http://localhost:3000/no-such-page");
+await page.goto(`${BASE}/no-such-page`);
 const missing = await page.innerText("body");
 check("a 404 names the product rather than showing Next's default",
   /Page not found/.test(missing) && !/This page could not be found/.test(missing));
 
-await page.goto("http://localhost:3000/register");
+await page.goto(`${BASE}/register`);
 await page.fill('input[name="full_name"]', "Ada Lovelace");
 await page.fill('input[name="email"]', EMAIL);
 await page.fill('input[name="password"]', PASSWORD);
@@ -89,7 +105,7 @@ check("checkpoint is never published", !trace.includes("checkpoint"));
 // M14 had two labelled forms here, one per agent, and the selectors were scoped
 // to a card to tell them apart. There is one box now, which is the milestone:
 // the user no longer has to know which agent they need.
-await page.goto("http://localhost:3000/approvals");
+await page.goto(`${BASE}/approvals`);
 const ask = page.locator('input[name="instruction"]');
 
 await ask.fill("Schedule a design review on 2026-09-10 09:00");
@@ -138,7 +154,7 @@ check("an impossible request is refused, not queued", !refused.includes("taxi to
 check("the refusal says what the product can do", /answer questions about your documents/i.test(refused));
 
 // --- M14: integrations ---
-await page.goto("http://localhost:3000/integrations");
+await page.goto(`${BASE}/integrations`);
 const integrations = await page.innerText("body");
 check("every configured provider is offered", ["Gmail", "Google Calendar", "Slack", "Notion", "GitHub", "Stripe"].every((name) => integrations.includes(name)));
 // Google Drive is in the Provider enum and deliberately unimplemented. A button
@@ -174,7 +190,7 @@ check(
 );
 
 // --- upload a document ---
-await page.goto("http://localhost:3000/documents");
+await page.goto(`${BASE}/documents`);
 await page.setInputFiles('input[type="file"]', {
   name: "policy.txt",
   mimeType: "text/plain",
@@ -189,7 +205,7 @@ check("the upload appears", (await page.textContent("body")).includes("policy.tx
 // --- sign out, and the guard ---
 await page.click('button:has-text("Sign out")');
 await page.waitForURL("**/login");
-await page.goto("http://localhost:3000/chat");
+await page.goto(`${BASE}/chat`);
 check("signed out cannot reach /chat", page.url().includes("/login"));
 
 await browser.close();

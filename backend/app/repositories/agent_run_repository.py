@@ -151,7 +151,7 @@ class AgentRunRepository:
         query = (
             select(AgentRun)
             .where(AgentRun.organization_id == organization_id)
-            .order_by(AgentRun.created_at.desc())
+            .order_by(AgentRun.created_at.desc(), AgentRun.id.desc())
             .limit(limit)
             .offset(offset)
         )

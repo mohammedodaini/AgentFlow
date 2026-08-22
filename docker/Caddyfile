@@ -1,0 +1,68 @@
+# =============================================================================
+# TLS termination and the only ingress into the stack.
+#
+# Until this file existed `docker-compose.prod.yml` published the API and the
+# frontend straight onto host ports over plain HTTP. Every password, every
+# access token and every session cookie crossed the network in the clear — which
+# also made ADR-0016's whole argument moot: an httpOnly cookie an attacker can
+# read off the wire is not protected by being httpOnly.
+#
+# Caddy rather than nginx or Traefik, for one reason: certificates. nginx needs
+# certbot, a renewal timer, and a reload hook, and the failure mode is a site
+# that goes down 90 days after somebody set it up and left. Caddy obtains and
+# renews automatically, and this file is the entire configuration.
+# =============================================================================
+
+{
+	# Deliberately no `email` here. Caddy registers with the ACME provider
+	# without a contact address; the only thing missing is expiry notices, and
+	# expiry notices matter to a system that renews by hand. Add
+	# `email you@example.com` if you want them.
+	#
+	# Renewal happens at roughly two-thirds of the certificate's life, in
+	# process, with no cron and nothing to forget.
+}
+
+# `PUBLIC_DOMAIN` decides everything about TLS, and it decides it correctly by
+# itself. A real hostname gets a publicly-trusted Let's Encrypt certificate over
+# HTTP-01, which needs port 80 reachable from the internet. The default —
+# `localhost` — gets one from Caddy's own internal CA instead, because Let's
+# Encrypt will not issue for a name it cannot resolve. That is what makes this
+# file testable on a laptop rather than only in a deployment nobody can rehearse.
+{$PUBLIC_DOMAIN:localhost} {
+	encode zstd gzip
+
+	# **Everything that is not the API goes to the frontend, and that includes
+	# `/metrics`.** The API mounts it at the root, so the effect of this routing
+	# is that the metrics endpoint is not publicly reachable at all — a request
+	# for it lands on Next.js and gets a 404. It is still scrapeable from inside
+	# the compose network, which is where a scraper lives.
+	#
+	# The token check in `app/api/metrics.py` stays regardless. Two independent
+	# reasons the endpoint is not open beats one, because this file is a
+	# deployment detail and that check is a property of the application.
+	handle /api/* {
+		reverse_proxy api:8000 {
+			# **Replace, don't append.** Caddy's default is to append the peer
+			# address to whatever the client sent, so a caller who writes
+			# `X-Forwarded-For: 1.2.3.4` is passed through as
+			# `1.2.3.4, <real client>`. That is fine for an application reading
+			# the header from the right — which `client_ip` now does — but this
+			# makes the header contain exactly one entry, written by us, so the
+			# invariant holds no matter what the client sends and no matter how
+			# `TRUSTED_PROXY_HOPS` is set.
+			header_up X-Forwarded-For {remote_host}
+		}
+	}
+
+	handle {
+		reverse_proxy web:3000 {
+			header_up X-Forwarded-For {remote_host}
+		}
+	}
+
+	# Security headers are set by the application, not here (see
+	# `app/middleware/security_headers.py`), including HSTS. Setting them in both places
+	# is how a header ends up duplicated or silently contradicted, and the
+	# application is the layer that knows whether it is running in production.
+}

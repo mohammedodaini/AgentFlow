@@ -1,0 +1,43 @@
+# =============================================================================
+# Secret scanning configuration.
+#
+# The gate runs against the **whole history**, not the diff. A secret that was
+# committed and then removed is still in the pack file, still fetchable by
+# anyone with clone access, and still valid until it is rotated — so "we deleted
+# it" is not a fix, and a scanner that only reads the tip cannot tell you that.
+#
+# Three findings exist today and all three are allowlisted below. Every entry
+# matches a **value**, not a path: allowlisting `.env.example` wholesale would
+# mean a real key pasted into that file next month is invisible, which is the
+# precise failure this gate exists to prevent.
+# =============================================================================
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = """
+The development encryption-key placeholder, which is published on purpose.
+
+Base64 for `agentflow-dev-only-insecure-key!` — it says what it is. It exists
+so `make dev` runs on a fresh clone with no key generation, and
+`Settings._check_production` REFUSES TO START if it is still set in production,
+naming it. A published placeholder that production rejects is documentation;
+the danger is a real key that looks like one, which is why this matches the
+exact string rather than the file.
+"""
+regexTarget = "match"
+regexes = ['''YWdlbnRmbG93LWRldi1vbmx5LWluc2VjdXJlLWtleSE=''']
+
+[[allowlists]]
+description = """
+The truncated JWT in the M3 milestone note.
+
+`eyJhbGciOiJIUzI1NiIs` is the base64 of `{"alg":"HS256","` — the header every
+HS256 token in the world starts with, and the note shows exactly that much
+before an ellipsis. There is no signature in the file, and the token it came
+from was signed with a development secret on a laptop.
+"""
+paths = ['''docs/milestones/.*\.md''']
+regexTarget = "match"
+regexes = ['''eyJhbGciOiJIUzI1NiIs\.\.\.''']

@@ -22,6 +22,25 @@ from tests.e2e.test_auth import PASSWORD, auth, register
 ORGS_URL = "/api/v1/organizations"
 
 
+async def member_id(client: AsyncClient, url: str, actor: dict[str, str], email: str) -> str:
+    """One member's user id, found by email rather than by position.
+
+    These tests used `members[0]`, which assumed the roster came back in
+    insertion order. It does not reliably: `Membership.created_at` defaults to
+    `now()`, which in Postgres is the *transaction* start time, and every e2e
+    test runs inside one transaction (ADR-0006) — so every row ties, and a tie
+    in `ORDER BY` is not an order.
+
+    It failed roughly one run in fifty:
+    `test_an_admin_cannot_demote_an_owner` picked the admin, demoted them
+    successfully, and asserted 403 against a 200. Fixed on both sides — the
+    query now carries an `id` tiebreaker — but a test that does not depend on
+    position is the half that stays correct when somebody adds a third member.
+    """
+    members = (await client.get(url, headers=scoped(actor))).json()
+    return str(next(m["user_id"] for m in members if m["email"] == email))
+
+
 async def sign_up(client: AsyncClient, email: str) -> dict[str, Any]:
     """Register someone and return their tokens plus their personal org id."""
     tokens = await register(client, email=email, password=PASSWORD)
@@ -265,7 +284,7 @@ async def test_an_admin_cannot_demote_an_owner(client: AsyncClient) -> None:
     await client.post(
         url, json={"email": "grace@example.com", "role": "admin"}, headers=scoped(owner)
     )
-    owner_id = (await client.get(url, headers=scoped(owner))).json()[0]["user_id"]
+    owner_id = await member_id(client, url, owner, "ada@example.com")
 
     response = await client.patch(
         f"{url}/{owner_id}",
@@ -280,7 +299,7 @@ async def test_the_last_owner_cannot_be_demoted(client: AsyncClient) -> None:
     """An ownerless organization cannot be billed, renamed, or given a new owner."""
     owner = await sign_up(client, "ada@example.com")
     url = members_url(owner["organization_id"])
-    owner_id = (await client.get(url, headers=scoped(owner))).json()[0]["user_id"]
+    owner_id = await member_id(client, url, owner, "ada@example.com")
 
     response = await client.patch(
         f"{url}/{owner_id}", json={"role": "member"}, headers=scoped(owner)
@@ -300,7 +319,7 @@ async def test_ownership_can_be_handed_over_when_there_are_two_owners(client: As
     )
     assert added.status_code == HTTPStatus.CREATED
 
-    owner_id = (await client.get(url, headers=scoped(owner))).json()[0]["user_id"]
+    owner_id = await member_id(client, url, owner, "ada@example.com")
     response = await client.patch(
         f"{url}/{owner_id}", json={"role": "admin"}, headers=scoped(owner)
     )
@@ -346,7 +365,7 @@ async def test_a_member_can_remove_themselves(client: AsyncClient) -> None:
 async def test_the_last_owner_cannot_leave(client: AsyncClient) -> None:
     owner = await sign_up(client, "ada@example.com")
     url = members_url(owner["organization_id"])
-    owner_id = (await client.get(url, headers=scoped(owner))).json()[0]["user_id"]
+    owner_id = await member_id(client, url, owner, "ada@example.com")
 
     response = await client.delete(f"{url}/{owner_id}", headers=scoped(owner))
 

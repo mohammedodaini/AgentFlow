@@ -233,9 +233,44 @@ def _test_env(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> Iterat
     each other's bytes. `tmp_path` is function-scoped, so each test gets an
     empty directory and pytest cleans it up.
     """
+    # **The suite reads no `.env` file at all**, and that is stronger than
+    # clearing variables. `Settings.model_config` lists `../.env` and `.env` as
+    # sources, and pydantic-settings parses those files *itself* — the values
+    # never pass through `os.environ`, so `monkeypatch.delenv` cannot touch
+    # them. Deleting `APP_VERSION` and watching `test_health.py` still fail with
+    # `'tlsdrill' != 'dev'` is how that was established.
+    #
+    # `setitem` rather than assignment so pytest restores the class attribute
+    # afterwards; `make dev` in the same working tree is unaffected.
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+
+    # Resolved *before* the sweep below, because these two read the environment
+    # to find out where CI put Postgres and Redis.
+    database_url = resolve_test_database_url()
+    redis_url = resolve_test_redis_url()
+
+    # And no *exported* variable either — the same isolation from the other
+    # direction, for a developer with `METRICS_TOKEN` in their shell.
+    #
+    # It has now gone wrong twice through the file. First `METRICS_TOKEN`, which
+    # made `/metrics` demand a token and gave four mystery 401s in
+    # `test_hardening.py`. The fix was one `delenv`, with a comment saying "the
+    # next setting somebody puts in `.env` would break a different file" — and
+    # the next setting was `APP_VERSION`, during a TLS drill, breaking
+    # `test_health.py` with `'tlsdrill' != 'dev'`. This is the general form.
+    #
+    # Derived from `Settings` rather than written out, so a field added in a
+    # later milestone is covered on the day it is added. Anything the suite
+    # actually wants is set immediately below.
+    for name, field in Settings.model_fields.items():
+        alias = field.validation_alias
+        monkeypatch.delenv(
+            str(alias) if isinstance(alias, str) else name.upper(), raising=False
+        )
+
     monkeypatch.setenv("APP_ENV", "test")
-    monkeypatch.setenv("DATABASE_URL", resolve_test_database_url())
-    monkeypatch.setenv("REDIS_URL", resolve_test_redis_url())
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    monkeypatch.setenv("REDIS_URL", redis_url)
     monkeypatch.setenv("STORAGE_LOCAL_PATH", str(tmp_path / "storage"))
     # M16. The limiter counts per caller per minute in a *shared* Redis, and the
     # suite runs hundreds of requests from one address inside one window — so the
@@ -243,15 +278,8 @@ def _test_env(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> Iterat
     # broke would depend on ordering. `tests/e2e/test_rate_limit.py` turns it back
     # on deliberately, which is the only place its behaviour is asserted.
     monkeypatch.setenv("RATE_LIMIT_ENABLED", "false")
-    # **The suite must not depend on the absence of a file.** `Settings` reads
-    # `../.env` as well as `backend/.env`, so a developer who has a real `.env` at
-    # the repo root — which the deploy runbook tells them to create — gets four
-    # mystery failures in `test_hardening.py`: `METRICS_TOKEN` is set, `/metrics`
-    # starts demanding it, and tests that never sent one get 401s.
-    #
-    # Found exactly that way. Cleared here rather than in those tests, because the
-    # next setting somebody puts in `.env` would break a different file.
-    monkeypatch.delenv("METRICS_TOKEN", raising=False)
+    # Explicit rather than merely absent: `/metrics` is open in the suite, and
+    # `test_hardening.py` sets a token where it wants to assert the check.
     monkeypatch.setenv("METRICS_TOKEN", "")
 
     get_settings.cache_clear()

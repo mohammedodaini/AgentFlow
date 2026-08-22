@@ -5,6 +5,13 @@
 name: CI
 
 on:
+  # A schedule as well as pushes, and only the supply-chain job needs it: a
+  # vulnerability is published against code that has not changed. A gate that
+  # runs only on push says "green" for as long as nobody commits, which is
+  # exactly the period during which an unpatched dependency is sitting in
+  # production unnoticed.
+  schedule:
+    - cron: "17 6 * * 1"
   push:
     # `master`, not `main`. The scaffold said `main` and this repository's branch
     # is `master`, so from M1 until M13 no *push* ever triggered this workflow —
@@ -50,10 +57,12 @@ jobs:
         run: uv run ruff format --check .
 
       - name: Type check
-        # `.`, not `app`. The local gate (`make check`) checks 255 files including
-        # every test; CI was checking 185. A production audit found the gap — a
-        # test file with a type error passed CI and failed on a developer's
-        # machine, which is the wrong way round for a gate to fail.
+        # `.`, not `app` — 259 files including every test. This once read `app`
+        # and was widened by a production audit; the comment then claimed the
+        # local gate was the stricter of the two, which was the opposite of the
+        # truth. `make typecheck` ran `mypy app` until a TLS drill noticed the
+        # file counts did not match. Both now check the same thing, which is the
+        # only arrangement where a green local run means anything.
         run: uv run mypy .
 
       - name: Migrations match the models
@@ -134,3 +143,84 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  # ---------------------------------------------------------------------------
+  # Supply chain. Three questions the other two jobs do not ask:
+  #
+  #   1. Does anything we depend on have a *published* vulnerability?
+  #   2. Is there a secret in this repository — including in history?
+  #   3. Does the lockfile still agree with the manifest?
+  #
+  # A separate job because it is the only one that runs on a schedule, and
+  # because its failures are a different kind: `mypy` failing means somebody
+  # broke something, and this failing usually means the world changed.
+  #
+  # **It is a real gate, not `continue-on-error`.** A red build for a CVE in a
+  # transitive dependency is disruptive, and that is the point — the alternative
+  # is a warning nobody reads. `.github/dependabot.yml` is what makes it
+  # clearable: the PR that fixes it is usually already open. When a fix does not
+  # exist yet, `--ignore-vuln GHSA-xxxx-xxxx-xxxx` with a comment naming the
+  # advisory, why it does not apply here, and when to look again is the escape
+  # hatch. An undocumented ignore is how a real vulnerability becomes permanent.
+  # ---------------------------------------------------------------------------
+  supply-chain:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # **The whole history, and this is the point of the scan.** A secret
+          # that was committed and later deleted is still in the pack file and
+          # still fetchable by anyone with clone access — and still valid until
+          # somebody rotates it. Scanning only the tip would report the one
+          # state where it is guaranteed absent.
+          fetch-depth: 0
+
+      - name: Secret scan
+        # The upstream image, run directly and pinned to a version, rather than
+        # `gitleaks/gitleaks-action`. Two reasons: the action asks for a licence
+        # key under an organization account, and a third-party action runs with
+        # a token that can write to this repository, which is the same class of
+        # risk this job exists to find.
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            zricethezav/gitleaks:v8.30.1 \
+            detect --source . --redact --no-banner -c /repo/.gitleaks.toml
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: The lockfile matches the manifest
+        working-directory: backend
+        # `--check` resolves and compares without writing. Without it, a
+        # `pyproject.toml` edited without re-locking means CI installs one set
+        # of versions and `docker build` — which uses `uv sync --frozen` —
+        # installs another, or refuses to build. That divergence was an M16 bug
+        # in the other direction: the production image ignored the lockfile
+        # entirely and re-resolved on every build.
+        run: uv lock --check
+
+      - name: Python dependencies have no known vulnerabilities
+        working-directory: backend
+        # Audited from the *lockfile*, exported, rather than from an installed
+        # environment. It is the lockfile that determines what ships, and it
+        # includes transitive pins that no manifest names.
+        run: |
+          uv export --format requirements-txt --all-extras --no-emit-project -o requirements.audit.txt
+          uvx pip-audit -r requirements.audit.txt --disable-pip
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Frontend dependencies have no known vulnerabilities
+        working-directory: frontend
+        # `high` and above. `pnpm audit` at `low` reports advisories against
+        # build-time packages that never reach a browser, and a gate that is
+        # red for a prototype-pollution note in a transitive dev dependency is
+        # a gate that gets switched off in a month.
+        run: pnpm audit --audit-level high

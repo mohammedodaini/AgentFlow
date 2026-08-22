@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.lockout import LockoutGuard
 from app.auth.service import AuthService
 from app.auth.tokens import TokenPair, TokenService
+from app.core.config import Settings, get_settings
 from app.db.deps import get_db
 from app.db.redis import get_redis
 from app.middleware.rate_limit import client_ip
@@ -34,6 +35,7 @@ def get_auth_service(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_db)],
     redis: Annotated[Redis, Depends(get_redis)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> AuthService:
     """Assemble the service from its dependencies.
 
@@ -49,7 +51,7 @@ def get_auth_service(
     return AuthService(
         session,
         TokenService(redis),
-        ip_address=client_ip(request),
+        ip_address=client_ip(request, trusted_proxy_hops=settings.trusted_proxy_hops),
         lockout=LockoutGuard(redis),
     )
 

@@ -98,7 +98,9 @@ class ConversationRepository:
 
         return list(
             await self._session.scalars(
-                query.order_by(Conversation.created_at.desc()).limit(limit).offset(offset)
+                query.order_by(Conversation.created_at.desc(), Conversation.id.desc())
+                .limit(limit)
+                .offset(offset)
             )
         )
 

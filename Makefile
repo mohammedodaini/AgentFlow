@@ -85,7 +85,10 @@ format:          ## Auto-format and fix imports
 	cd backend && uv run ruff format . && uv run ruff check --fix .
 
 typecheck:       ## Static type checking
-	cd backend && uv run mypy app
+# `.`, not `app`. CI runs `mypy .` — 259 files including every test — and this
+# ran `mypy app`, 186. A local gate weaker than the remote one is the wrong way
+# round: a type error in a test file passed here and failed after the push.
+	cd backend && uv run mypy .
 
 migrate:         ## Apply database migrations
 	cd backend && uv run alembic upgrade head

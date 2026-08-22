@@ -101,17 +101,35 @@ class OrganizationService:
             select(Membership)
             .where(Membership.user_id == user_id)
             .options(selectinload(Membership.organization))
-            .order_by(Membership.created_at)
+            .order_by(Membership.created_at, Membership.id)
         )
         return list(result)
 
     async def list_members(self, organization_id: uuid.UUID) -> list[tuple[Membership, User]]:
-        """The roster. One join, not one query per member."""
+        """The roster. One join, not one query per member.
+
+        **Ordered by `created_at` *and* `id`, and the second key is not
+        decoration.** `created_at` is `server_default=now()`, and in Postgres
+        `now()` is the *transaction* start time — constant for every row written
+        in one transaction. So any two members added together sort as a tie, and
+        a tie in `ORDER BY` is not an order at all: the rows come back in
+        whatever sequence the plan produced.
+
+        Found as a flaky test rather than by reading the code. Every e2e test
+        runs inside a single rolled-back transaction (ADR-0006), which makes
+        *every* row in a test a tie — so `test_an_admin_cannot_demote_an_owner`
+        took `members[0]` as the owner and, once in roughly fifty runs, got the
+        admin instead and demoted them successfully.
+
+        `id` is a UUIDv7, so it is itself time-ordered and is the natural second
+        key rather than an arbitrary one. Every other `ORDER BY created_at` in
+        this codebase now carries the same tiebreaker.
+        """
         result = await self._session.execute(
             select(Membership, User)
             .join(User, User.id == Membership.user_id)
             .where(Membership.organization_id == organization_id)
-            .order_by(Membership.created_at)
+            .order_by(Membership.created_at, Membership.id)
         )
         return [(membership, user) for membership, user in result.all()]
 

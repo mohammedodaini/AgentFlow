@@ -172,7 +172,7 @@ class EventService:
         statement = (
             select(Event)
             .where(Event.organization_id == organization_id)
-            .order_by(Event.created_at.desc())
+            .order_by(Event.created_at.desc(), Event.id.desc())
             .limit(limit)
         )
 

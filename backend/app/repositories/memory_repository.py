@@ -225,7 +225,7 @@ class MemoryRepository:
             await self._session.scalars(
                 select(Memory)
                 .where(Memory.organization_id == organization_id, _visible_to(user_id))
-                .order_by(Memory.importance.desc(), Memory.created_at.desc())
+                .order_by(Memory.importance.desc(), Memory.created_at.desc(), Memory.id.desc())
                 .limit(limit)
                 .offset(offset)
             )

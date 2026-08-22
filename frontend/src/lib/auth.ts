@@ -22,6 +22,7 @@
 
 import { redirect } from "next/navigation";
 
+import { withClientAddress } from "@/lib/client-address";
 import { API_BASE } from "@/lib/config";
 import { clearSession, getRefreshToken, setSession, setOrganizationId } from "@/lib/session";
 import type { Membership } from "@/lib/types";
@@ -41,7 +42,7 @@ export interface AuthResult {
  */
 async function adoptFirstOrganization(accessToken: string): Promise<void> {
   const response = await fetch(`${API_BASE}/organizations`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: await withClientAddress({ Authorization: `Bearer ${accessToken}` }),
     cache: "no-store",
   });
 
@@ -60,7 +61,11 @@ async function adoptFirstOrganization(accessToken: string): Promise<void> {
 async function authenticate(path: string, payload: Record<string, unknown>): Promise<AuthResult> {
   const response = await fetch(`${API_BASE}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    // **The audit trail's whole reason for having an address column.** These
+    // are the sign-in and registration events, and the failed-login counter
+    // that account lockout reads. Before this they recorded the frontend
+    // container's address for every user in the system.
+    headers: await withClientAddress({ "Content-Type": "application/json" }),
     body: JSON.stringify(payload),
     cache: "no-store",
   });

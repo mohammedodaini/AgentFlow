@@ -95,6 +95,17 @@ services:
       OAUTH_REDIRECT_BASE_URL: ${OAUTH_REDIRECT_BASE_URL:?the public origin}
       SENTRY_DSN: ${SENTRY_DSN:-}
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-300}
+      # One hop: Caddy, below. This is what makes the app believe
+      # `X-Forwarded-For`, and it is deliberately *not* the default in
+      # `Settings` — a deployment without a proxy in front of it must ignore
+      # that header, or the rate limiter can be reset by sending a new value.
+      #
+      # Stated plainly, because it is the cost of the loopback publish below:
+      # with this set to 1, a request that reaches the API *without* going
+      # through Caddy can supply its own single-entry header and be believed.
+      # The only such route is `127.0.0.1:8000`, which needs a shell on the
+      # host — an attacker who has one is past every control in this file.
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
       # Which build this is, readable from inside the container. `docker ps` shows
       # the tag, but a process that can report its own version is what makes
       # "which code produced this log line?" answerable from the log line.
@@ -105,8 +116,13 @@ services:
     # first request, and never by falling back to a value somebody could guess.
     volumes:
       - storage:/var/lib/agentflow/storage
+    # **Loopback only.** Caddy is the ingress; this publish exists so `make
+    # smoke` and `make loadtest` can reach the API from the host without going
+    # through TLS. Bound to 0.0.0.0 — which is what a bare `8000:8000` means —
+    # it is a second, unencrypted, unproxied front door onto the internet,
+    # sitting beside the one that terminates TLS and answering the same routes.
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -156,11 +172,53 @@ services:
       # (ADR-0016: the browser never talks to the API directly), so this resolves
       # on the compose network rather than in anybody's browser.
       BACKEND_URL: http://api:8000
+    # Loopback only, for the same reason as the API above.
     ports:
-      - "${WEB_PORT:-3000}:3000"
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
     depends_on:
       api:
         condition: service_healthy
+    restart: unless-stopped
+
+  caddy:
+    # **The only service that should ever be reachable from the internet.**
+    #
+    # Everything else publishes on loopback or not at all, so this container is
+    # the entire attack surface — and the one place TLS, HTTP/2 and the real
+    # client address are decided. Configuration is `docker/Caddyfile`; there is
+    # no second copy of the routing anywhere.
+    image: caddy:2-alpine
+    # **Leave these at 80 and 443 in a real deploy.** They are overridable so
+    # the stack can be rehearsed on a laptop where something already holds
+    # those ports — the TLS drill for this change ran on 8080/8443 — and that
+    # is the only thing they are for. Two things assume the canonical ports:
+    # Caddy's HTTP→HTTPS redirect is built from the site address, so on 8443 it
+    # sends browsers to `https://host/…` with no port; and the ACME HTTP-01
+    # challenge is answered on port 80 from the public internet, which is not
+    # negotiable and not something this variable can move.
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      # `localhost` gets a certificate from Caddy's internal CA, which is what
+      # makes this rehearsable on a laptop. A real hostname gets a Let's Encrypt
+      # one, and needs port 80 reachable for the HTTP-01 challenge.
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:-localhost}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      # **`caddy_data` must persist, and this is the one volume where losing it
+      # has an external cost.** It holds the account key and the issued
+      # certificates. A container that starts with an empty one re-requests
+      # everything, and Let's Encrypt rate-limits duplicate certificates to five
+      # a week per hostname — so a restart loop with no volume takes the site
+      # off the air for days, and no amount of restarting fixes it.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
     restart: unless-stopped
 
   backup:
@@ -194,3 +252,5 @@ volumes:
   pgdata:
   redisdata:
   storage:
+  caddy_data:
+  caddy_config:

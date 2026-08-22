@@ -81,7 +81,7 @@ class IntegrationRepository:
             await self._session.scalars(
                 select(Integration)
                 .where(Integration.organization_id == organization_id)
-                .order_by(Integration.created_at.desc())
+                .order_by(Integration.created_at.desc(), Integration.id.desc())
                 .options(selectinload(Integration.tokens))
             )
         )

@@ -449,6 +449,29 @@ class Settings(BaseSettings):
     figures to tune it against.
     """
 
+    trusted_proxy_hops: int = 0
+    """How many reverse proxies in front of this process may be believed.
+
+    `X-Forwarded-For` is written by whoever is talking to us, and until this
+    setting existed the app read its **first** entry unconditionally — which is
+    wrong in both deployments this product can be in.
+
+    - **With no proxy**, which is what `docker-compose.prod.yml` was before
+      Caddy: any caller could send `X-Forwarded-For: <anything>` and be counted
+      as a brand-new identity on every single request. That is the rate limiter
+      defeated by one header, and the `events` audit trail recording whatever
+      address the attacker felt like typing.
+    - **With a proxy** it is still wrong, because a proxy *appends*. A forged
+      `1.2.3.4` arrives at the application as `1.2.3.4, <real client>`. The
+      first entry is the forgery; the truthful one is the entry our own proxy
+      added, which is the **last**.
+
+    So the header is read from the right, `trusted_proxy_hops` entries in, and
+    `0` — the default — ignores it entirely and uses the socket's peer address.
+    A deployment with nothing in front of it is therefore safe without
+    configuring anything, and putting a proxy there is a deliberate change.
+    """
+
     metrics_enabled: bool = True
     metrics_token: SecretStr = SecretStr("")
     """Shared secret for `GET /metrics`, and it is *not* optional in production.

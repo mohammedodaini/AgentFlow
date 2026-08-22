@@ -1,0 +1,82 @@
+# =============================================================================
+# Automated dependency updates.
+#
+# This exists because of what the supply-chain job in `ci.yml` does: it fails
+# the build when a dependency has a known vulnerability. A gate with no way to
+# clear it is a gate people disable, so the two ship together — the audit says
+# *something is wrong* and Dependabot opens the pull request that fixes it.
+#
+# Four ecosystems, because this repository has four and it is easy to remember
+# only the first two. A vulnerable base image or a compromised GitHub Action is
+# every bit as much a production incident as a vulnerable library, and the
+# Action is arguably worse: it runs with a token that can write to this repo.
+# =============================================================================
+
+version: 2
+
+updates:
+  # --- Python ------------------------------------------------------------
+  # `pip` is the correct ecosystem name for a uv project: Dependabot reads
+  # `pyproject.toml` and `uv.lock`, which is the same pair uv resolves from.
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the dev toolchain instead of five. Ruff, mypy and pytest
+      # move constantly and none of them ship in the image — reviewing them
+      # separately is how the security updates get lost in the noise.
+      #
+      # This project has been bitten by an unreviewed tool bump before: M6's
+      # `uv lock` silently took mypy from 1.x to 2.3 because the specifier has
+      # no upper bound. That is exactly the kind of change worth seeing in one
+      # PR with a diff, rather than discovering during an unrelated milestone.
+      dev-tooling:
+        patterns: ["ruff", "mypy", "pytest*", "types-*", "coverage*"]
+
+  # --- Frontend ----------------------------------------------------------
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # Next, React and their types move as a set; a PR that bumps `react`
+      # without `react-dom` does not build, and one that bumps either without
+      # `@types/react` fails the type check.
+      react:
+        patterns: ["next", "react", "react-dom", "@types/react*", "eslint-config-next"]
+
+  # --- CI ----------------------------------------------------------------
+  # Actions are pinned by major tag (`actions/checkout@v4`), which floats.
+  # Pinning by commit SHA is the stronger supply-chain answer — a compromised
+  # tag cannot be re-pointed at malicious code — and is not done here, because
+  # a SHA-pinned workflow that nothing updates rots into a set of frozen,
+  # unpatched actions. This is the thing that updates it; SHA pinning becomes
+  # worth the trade the moment this repository has contributors who are not
+  # its author.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  # --- Container base images --------------------------------------------
+  # `pgvector/pgvector:pg17`, `redis:7-alpine`, `caddy:2-alpine` and the
+  # Python base in `backend/Dockerfile`. A floating tag gets patches only when
+  # something pulls; a long-running host that never re-pulls runs whatever it
+  # first downloaded, for as long as it is up.
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /frontend
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly

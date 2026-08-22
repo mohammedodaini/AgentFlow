@@ -209,7 +209,7 @@ class ApprovalService:
                 Approval.status == ApprovalStatus.PENDING,
                 Approval.expires_at > datetime.now(UTC),
             )
-            .order_by(Approval.created_at.asc())
+            .order_by(Approval.created_at.asc(), Approval.id.asc())
             .limit(limit)
         )
         return list(approvals)
