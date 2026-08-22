@@ -5,7 +5,7 @@
 # dependency, the runtime needs almost none, and `output: "standalone"` is what
 # lets the final image contain a traced subset instead of ~1.2GB of node_modules.
 # =============================================================================
-FROM node:22-slim AS deps
+FROM node:26-slim AS deps
 
 # corepack ships with node and pins pnpm from package.json's `packageManager`
 # field, so the image builds with the same pnpm the lockfile was written by.
@@ -27,7 +27,7 @@ COPY package.json pnpm-lock.yaml ./
 # fast, deduplicated layout and only the image pays for a flat one.
 RUN pnpm install --frozen-lockfile --config.node-linker=hoisted
 
-FROM node:22-slim AS builder
+FROM node:26-slim AS builder
 RUN corepack enable
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
@@ -37,7 +37,7 @@ COPY . .
 # image is not baked to one environment.
 RUN pnpm build
 
-FROM node:22-slim
+FROM node:26-slim
 
 # Never run containers as root.
 RUN useradd --create-home appuser
