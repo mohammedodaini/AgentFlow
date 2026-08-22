@@ -50,7 +50,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     # `--appendonly yes`: Redis holds the M3 refresh-token denylist and the arq
     # queue. Losing the denylist on restart means revoked tokens work again until
     # they expire; losing the queue means uploaded documents are never indexed and
