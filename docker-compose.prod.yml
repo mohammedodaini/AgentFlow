@@ -226,7 +226,7 @@ services:
     # against a newer server refuses outright; from a newer client it can emit
     # SQL the older server cannot restore — and you find out at restore time,
     # which is the worst possible moment to learn it.
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_USER: ${POSTGRES_USER:-agentflow}
