@@ -264,9 +264,7 @@ def _test_env(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> Iterat
     # actually wants is set immediately below.
     for name, field in Settings.model_fields.items():
         alias = field.validation_alias
-        monkeypatch.delenv(
-            str(alias) if isinstance(alias, str) else name.upper(), raising=False
-        )
+        monkeypatch.delenv(str(alias) if isinstance(alias, str) else name.upper(), raising=False)
 
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.setenv("DATABASE_URL", database_url)
