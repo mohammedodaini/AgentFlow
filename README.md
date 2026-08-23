@@ -5,7 +5,12 @@ Notion, GitHub, and Stripe; answers questions over your company documents (RAG);
 drafts emails, schedules meetings, generates proposals — with human approval
 before any dangerous action.
 
-> **Status:** architecture phase. See [docs/](docs/) for the full design.
+> **Status:** working stack. Authentication with account lockout, scheduled
+> backups with a rehearsed restore, TLS termination, and a documented rollback
+> path are in place, behind a CI gate that runs lint, formatting, type checks,
+> a migrations-match-the-models check, the test suite, and an evaluation gate.
+> See [docs/](docs/) for the design and [docs/operations.md](docs/operations.md)
+> for running it.
 
 ## Documentation map
 
