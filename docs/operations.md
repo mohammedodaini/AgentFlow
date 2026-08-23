@@ -3,7 +3,7 @@
 The gap a production audit found after M16: the stack could be deployed and had
 no documented way back. This is that way back.
 
-**Scope, honestly.** This describes a single-host Docker deploy — one replica of
+**Scope, honestly.** This describes a single-host Docker deploy: one replica of
 each service, no managed database, no secret manager. TLS *is* terminated, by
 Caddy, since ADR-0020. It is what `docker-compose.prod.yml` actually is. Everything here is also the source a
 Kubernetes or ECS runbook would be written from, because the *decisions* are the
@@ -49,7 +49,7 @@ scripts/release.sh               # builds and tags agentflow/{api,web}:<sha>
 ```
 
 `release.sh` refuses a dirty working tree. An image tagged with a SHA whose tree
-had uncommitted changes is an image nobody can reproduce — and it is exactly the
+had uncommitted changes is an image nobody can reproduce, and it is exactly the
 one you will be trying to reproduce, because it is the one that broke.
 
 ```bash
@@ -59,7 +59,7 @@ make prod-migrate                                # only after the new image is h
 ```
 
 Note the order: **the new image starts before the migration runs.** That is only
-safe because of the expand/contract rule above — the new code must tolerate the
+safe because of the expand/contract rule above: the new code must tolerate the
 old schema for the seconds between. The alternative order (migrate, then deploy)
 requires the *old* code to tolerate the *new* schema, which is the same
 constraint pointing the other way, and leaves a window where a rollback has
@@ -69,7 +69,7 @@ Then verify, in this order, because each step is cheap and rules out the layer
 below it:
 
 ```bash
-curl -fsS localhost:8000/api/v1/health/live      # {"status":"ok","version":"<sha>"} — the right build?
+curl -fsS localhost:8000/api/v1/health/live      # {"status":"ok","version":"<sha>"}: the right build?
 curl -fsS localhost:8000/api/v1/health/ready     # {"status":"ready", database:true, redis:true}
 curl -sI  localhost:8000/api/v1/health/live      # Server: agentflow, nosniff, DENY
 make prod-logs                                   # no tracebacks in the first minute
@@ -79,7 +79,7 @@ make smoke                                       # 24 checks through a real brow
 `make smoke` is the one that matters. The health check proves the process is up;
 the smoke test proves a person can sign in, ask a question, and get an answer.
 
-**Before a release, also run the failure drill** — separately, because it kills
+**Before a release, also run the failure drill**: separately, because it kills
 the API and so cannot live inside `make smoke`:
 
 ```bash
@@ -90,7 +90,7 @@ Ten checks on what a user sees when things go wrong: a mistyped URL, a session
 the backend has revoked, and the API down mid-session. It exists because a
 production audit found there was no error boundary anywhere in the app, so an
 outage rendered Next's bare "Application error: a server-side exception has
-occurred" — no explanation, no way back, no reference to quote to support.
+occurred": no explanation, no way back, no reference to quote to support.
 
 ---
 
@@ -101,7 +101,7 @@ make prod-versions                # what this host can roll back to
 make prod-rollback VERSION=<sha>
 ```
 
-It re-runs an image that already exists — **no rebuild**. Compiling under
+It re-runs an image that already exists, **no rebuild**. Compiling under
 pressure, from a tree that has moved on, is how a bad deploy becomes a bad
 afternoon. The script waits for `/health/ready` and fails loudly if it does not
 come back within 60 seconds.
@@ -129,7 +129,7 @@ make prod-rollback VERSION=e0e8804
 ```
 
 Two things are worth reading twice. The rolled-back build answers `/health/live`
-*without* a `version` field, because the field did not exist at that commit — the
+*without* a `version` field, because the field did not exist at that commit: the
 absence is the proof that this is genuinely the older image and not a cached
 newer one. And **23/23 smoke checks passed on the rolled-back build against the
 newer schema**, which is the expand/contract rule holding rather than being
@@ -137,8 +137,8 @@ asserted: the `events` table added by the later release was already there, and
 the earlier code neither knew nor cared.
 
 Rehearse it again whenever the deploy shape changes. The first run of the release
-script failed twice — once demanding production secrets to build an image, once
-polling the wrong port — and both would have been discovered during an incident
+script failed twice, once demanding production secrets to build an image, once
+polling the wrong port, and both would have been discovered during an incident
 instead.
 
 **If the release contained a migration that was not backward compatible**, this
@@ -173,8 +173,8 @@ each time. `make prod-logs` shows which.
 ```bash
 curl -s localhost:8000/api/v1/health/ready
 ```
-`database:false` — Postgres is down, or the password changed, or the volume was
-recreated. `redis:false` — Redis is down; the API keeps serving, sign-out
+`database:false`: Postgres is down, or the password changed, or the volume was
+recreated. `redis:false`, Redis is down; the API keeps serving, sign-out
 revocation and background jobs do not.
 
 **3. Is it slow?**
@@ -189,7 +189,7 @@ agent traffic.
 
 **4. Is something being refused?**
 429s in `agentflow_http_requests_total` mean the limiter is working. That is
-either abuse — check the audit trail — or the limit is too low for real traffic,
+either abuse, check the audit trail, or the limit is too low for real traffic
 in which case raise `RATE_LIMIT_PER_MINUTE` rather than switching it off.
 
 **5. Is someone attacking it?**
@@ -200,14 +200,14 @@ GROUP BY 1 ORDER BY 2 DESC LIMIT 10;
 ```
 The audit trail records every failed sign-in with its address.
 
-An account now locks for fifteen minutes after fifteen failures — `reason:
+An account now locks for fifteen minutes after fifteen failures, `reason:
 "locked"` in the payload marks attempts refused by it. That counts per
 **account**, not per address, because credential stuffing sprays one account from
 thousands of addresses and every one of them fits inside a per-IP budget.
 
 The trade, stated: somebody who knows a user's email address can lock that user
-out for fifteen minutes. That is accepted — the alternative is leaving the account
-guessable — and it is why the window is short and a successful sign-in clears the
+out for fifteen minutes. That is accepted: the alternative is leaving the account
+guessable, and it is why the window is short and a successful sign-in clears the
 count.
 
 ---
@@ -278,11 +278,11 @@ anonymous traffic, and `events.ip_address`.
 | In front of the app | Value | What is read |
 |---|---|---|
 | Nothing | `0` (default) | the socket's peer address; the header is ignored |
-| Caddy, as shipped | `1` | the last entry — the one Caddy wrote |
+| Caddy, as shipped | `1` | the last entry: the one Caddy wrote |
 | A CDN in front of Caddy | `2` | the second from the right |
 
 **Getting this wrong is silent.** Too low and every caller is recorded as the
-proxy — one constant value in a column that exists to spot eighty failed
+proxy: one constant value in a column that exists to spot eighty failed
 sign-ins from one address. Too high, or trusting the header with nothing in
 front, and a caller picks their own identity: a fresh rate-limit bucket per
 request, and a fictional address in the audit trail. Neither shows up as an
@@ -306,7 +306,7 @@ low. See ADR-0020.
 `make prod-backup` writes a `pg_dump` to `backups/`, which is gitignored.
 
 A `backup` service now runs in the stack. Every six hours it writes a compressed
-dump to `backups/` on the **host** — a bind mount, not a named volume, because a
+dump to `backups/` on the **host**: a bind mount, not a named volume, because a
 named volume lives inside Docker's storage and `docker volume prune` would take
 the backups along with the database they exist to protect. Dumps older than
 fourteen days are pruned.
@@ -327,7 +327,7 @@ restored the newest backup when given no argument, which is precisely wrong in t
 situation the script exists for: backups run on a schedule, so by the time anybody
 notices the problem the scheduler has already captured it. The rehearsal wiped
 every user, ran `restore.sh` with no argument, and it faithfully restored the
-empty database — and reported success.
+empty database, and reported success.
 
 So answer "when did this start?" *first*, then name the file from before it.
 
@@ -352,12 +352,12 @@ leaves the product broken is not a recovery.
 **No off-host copy.** `backups/` is a directory on the same machine as the
 database. That survives a bad migration, a bad deploy and a dropped table; it does
 not survive a lost disk. Point `BACKUP_DIR` at a mounted network volume, or rsync
-the directory elsewhere on a timer — either is a deployment decision rather than a
+the directory elsewhere on a timer, either is a deployment decision rather than a
 code change, and until one is made this is a single point of failure.
 
 **No encryption at rest.** The dumps hold Fernet ciphertext for OAuth tokens (so
-those stay protected by `TOKEN_ENCRYPTION_KEY`), but everything else — addresses,
-documents, message bodies — is plaintext SQL in a directory.
+those stay protected by `TOKEN_ENCRYPTION_KEY`), but everything else, addresses
+documents, message bodies, is plaintext SQL in a directory.
 
 **Nothing verifies a backup except restoring it.** The drill above was run by
 hand. A weekly automated restore into a scratch database is the standard answer
@@ -383,7 +383,7 @@ has a migration path yet.
 
 **Supply chain, and what it does not cover.** `.github/workflows/ci.yml` runs a
 secret scan over the whole history, `pip-audit` against the exported lockfile,
-`pnpm audit` at high and above, and `uv lock --check` — weekly as well as on
+`pnpm audit` at high and above, and `uv lock --check`, weekly as well as on
 every push, because a vulnerability is published against code that has not
 changed. `.github/dependabot.yml` opens the PRs that clear it.
 
@@ -391,5 +391,5 @@ None of that verifies that a package *is what it claims to be*. There is no
 signature verification, no provenance attestation and no vendored mirror; a
 compromised upstream release with no advisory filed passes every one of these
 checks. GitHub Actions are pinned by major tag rather than by commit SHA, which
-is the weaker of the two options and the one that keeps getting updated —
+is the weaker of the two options and the one that keeps getting updated
 `dependabot.yml` says why.

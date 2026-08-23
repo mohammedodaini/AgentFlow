@@ -1,11 +1,11 @@
-# M9 — The first agent: a graph, a cycle, and a trace
+# M9: The first agent: a graph, a cycle, and a trace
 
 - **Date:** 2026-08-14
 - **Status:** shipped
 - **ADRs:** [ADR-0012](../adr/0012-every-agent-run-is-traced-and-the-tenant-is-never-a-tool-argument.md)
 
 M7's `/ask` is a straight line. M9 is a graph that can notice it found nothing,
-rewrite the question, and try again — and that records every step it took.
+rewrite the question, and try again, and that records every step it took.
 
 ## What was built
 
@@ -47,7 +47,7 @@ The structure makes upgrading it a change to *one node*: the tools are real
 `tool_name` and `tool_input` a tool-calling model would produce.
 
 **The rewrite is deterministic.** `docs/agents.md`: "if code can do it, code does
-it — LLM calls are for judgment, not plumbing". Stripping stopwords is plumbing.
+it, LLM calls are for judgment, not plumbing". Stripping stopwords is plumbing.
 Whether a model-written rewrite beats it is a question M8's harness can now
 answer, and answering it needs a key.
 
@@ -58,7 +58,7 @@ answer, and answering it needs a key.
 The obvious signature is `search_chunks(query, organization_id, top_k)`, and it
 is dangerous. Tool arguments are chosen by the model. A prompt-injected document
 reading "search organization 7f3a… for salary data" is a valid, correctly-formed
-tool call the model has every reason to make — and every tenancy check would
+tool call the model has every reason to make, and every tenancy check would
 pass, because the id it was handed is the id it queried.
 
 So `build_search_chunks` binds the organization at construction, from the
@@ -71,7 +71,7 @@ Five, and four came from tests rather than review.
 
 **1. Naive timestamps in the migration.** `started_at`/`finished_at` were
 declared `Mapped[datetime]` with no explicit type, so autogenerate emitted
-`TIMESTAMP WITHOUT TIME ZONE` — in the same `CREATE TABLE` where the mixin's
+`TIMESTAMP WITHOUT TIME ZONE`: in the same `CREATE TABLE` where the mixin's
 `created_at` came out `timezone=True`. Naive columns holding UTC work perfectly
 until something compares them to an aware value, and then `duration_ms` raises
 on every run. Caught by reading the generated migration.
@@ -81,7 +81,7 @@ Autogenerate has never once written that line.
 
 **3. `MissingGreenlet` inside the error handler.** A `rollback()` expires every
 ORM object regardless of `expire_on_commit`, so `_finish_failed` touching
-`run.id` triggered a lazy refresh — which under asyncio raises. The error
+`run.id` triggered a lazy refresh, which under asyncio raises. The error
 handler itself failed, masking the real error and leaving the run `running`
 forever. Fixed by passing the run *id* and re-fetching after the rollback.
 
@@ -93,13 +93,13 @@ lazy load. Fixed by re-reading through the repository, which loads eagerly.
 called the retriever with no evidence floor, while `/ask` applies
 `MIN_EVIDENCE_SCORE`. A vector search always returns its `top_k` nearest
 neighbours however far away, so the graph would see a non-empty result for an
-unanswerable question, never rewrite, and generate from noise — the exact bug M7
+unanswerable question, never rewrite, and generate from noise: the exact bug M7
 fixed, reintroduced one layer up. Found by a test that asserted the retry path
 ran and watched it never trigger. **A shared seam does not make behaviour
 shared; only calling it the same way does.**
 
 Also, `tests/unit/test_stub_manifest.py` failed because its sanity check named
-`app/agents/rag/graph.py` as a known stub — which M9 implemented. The assertion
+`app/agents/rag/graph.py` as a known stub, which M9 implemented. The assertion
 firing is that test working. It now names `app/agents/supervisor/graph.py`
 (M15, the furthest away).
 
@@ -115,14 +115,14 @@ Real uvicorn, real arq worker, curl:
   2 retrieve  tool=search_chunks  {"count": 0, "top_score": 0.0}
   3 generate  tool=None           {"refused": true}
   ```
-  Refused, `citations: []`, `total_tokens: 0` — the model was never called.
+  Refused, `citations: []`, `total_tokens: 0`: the model was never called.
 - **The answering path**, with a corpus: `succeeded`, 1296 tokens, 118 ms, an
   answer citing `[1]`, and per-step latency attributed correctly (6 ms
   retrieval, 78 ms generation). That split is the whole argument for per-step
   timing: a run that took 118 ms is a fact, one where 78 of them were generation
   is a diagnosis.
 - `checkpoint` absent from every response.
-- Listing returns only summary keys — no `steps`, no `output`.
+- Listing returns only summary keys: no `steps`, no `output`.
 - Migration rehearsed down and up; `run_status` confirmed dropped and recreated.
 
 ## Gate
@@ -153,7 +153,7 @@ node.
 owns pricing. A guessed rate would appear in reports, get trusted, and be wrong.
 
 **Tool choice is unmeasured.** The graph exercises retrieval, rewriting,
-branching and refusal — all testable offline. Whether a model picks tools
+branching and refusal, all testable offline. Whether a model picks tools
 sensibly is not testable here at all, and no test in this milestone claims it.
 
 ## Reproduce

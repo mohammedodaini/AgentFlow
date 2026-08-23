@@ -29,7 +29,7 @@ Three properties matter for AgentFlow:
 id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid7)
 ```
 
-`uuid7()` lives in `app/core/ids.py` and implements RFC 9562 §5.7 — a 48-bit
+`uuid7()` lives in `app/core/ids.py` and implements RFC 9562 §5.7: a 48-bit
 millisecond timestamp, then version and variant bits, then 74 bits from a
 CSPRNG.
 
@@ -38,13 +38,13 @@ CSPRNG.
 **Good.** Ids carry no sequence information, so they are safe in URLs. Any
 process can mint one without coordination. Because the timestamp leads, new
 rows append to the right edge of the primary-key B-tree instead of scattering
-across it — the property random UUIDv4 keys lack, and the reason v4-keyed
+across it: the property random UUIDv4 keys lack, and the reason v4-keyed
 tables need far more vacuuming than their row counts suggest. `ORDER BY id` is
 `ORDER BY created_at` for free, and a pagination cursor can just be the id.
 
 **Bad.** 16 bytes rather than 8, in every table and every index. At AgentFlow's
 scale that is a rounding error; at a billion rows it would deserve a second
-look. A v7 id also leaks its creation time to anyone holding it — fine for
+look. A v7 id also leaks its creation time to anyone holding it, fine for
 organizations and documents, wrong for anything secret. Password-reset tokens
 and similar use `secrets.token_urlsafe`, which is a different tool for a
 different job.
@@ -66,7 +66,7 @@ fragment the primary index, which is precisely the cost v7 was designed to
 remove.
 
 **ULID.** Time-ordered like v7, but a 26-character string with no native
-Postgres type — meaning either a `char(26)` column or an extension, plus
+Postgres type: meaning either a `char(26)` column or an extension, plus
 conversion at every boundary. v7 is a plain `uuid` column that psql, pgAdmin
 and every driver already understand.
 

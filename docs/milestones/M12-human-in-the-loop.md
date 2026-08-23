@@ -1,11 +1,11 @@
-# M12 — Human in the loop: the first agent that changes something
+# M12: Human in the loop: the first agent that changes something
 
 - **Date:** 2026-08-16
 - **Status:** shipped
 - **ADRs:** [ADR-0015](../adr/0015-an-approval-is-a-row-and-the-action-it-permits-is-stored-whole.md)
 
 Every tool before this one read. M12 gives the agent one that writes to somebody's
-diary — and then makes sure it cannot use it without being told to.
+diary, and then makes sure it cannot use it without being told to.
 
 This is also the milestone that fills in `app/agents/`. Until now that package held
 one implemented agent (`rag/`) and eight stubs; `calendar/` is the second.
@@ -35,7 +35,7 @@ one implemented agent (`rag/`) and eight stubs; `calendar/` is the second.
 
 Two compiled graphs over one set of node functions. The pause is a graph reaching
 `END`; the durability is `agent_runs.checkpoint`. **This is not LangGraph's
-`interrupt()`** — stated plainly because the roadmap asks for "LangGraph interrupts",
+`interrupt()`**, stated plainly because the roadmap asks for "LangGraph interrupts"
 and what it actually asks for is that the pause survive a restart. A checkpointer
 would have been a second store of a fact the row already holds.
 
@@ -47,13 +47,13 @@ request was still in the inbox of a brand-new process, and approving resumed fro
 checkpoint in Postgres.
 
 **The action is stored whole, and it is what executes.** Not a plan id to be
-re-derived — the same dict is written, displayed and executed, so "what was approved"
+re-derived: the same dict is written, displayed and executed, so "what was approved"
 and "what ran" are identical by construction. Re-deriving would mean a user approved
 a summary and something else ran.
 
 **Proposing and executing are different functions.** `parse_event_request` touches
 nothing; `build_create_event` is constructed only on the resume path. There is no `if
-approved:` branch to get wrong — the effect is unreachable without going through the
+approved:` branch to get wrong: the effect is unreachable without going through the
 row.
 
 ## Bugs this milestone found
@@ -70,18 +70,18 @@ test; the assumption was invisible until a run had two halves.
 
 **3. A rollback silently undid a human's decision.** `approve()` flushed the
 `APPROVED` status and then resumed the run. When execution failed,
-`AgentService._finish_failed` rolled the session back — as it must — and took the
+`AgentService._finish_failed` rolled the session back, as it must, and took the
 decision with it, leaving the run `FAILED` and the approval `PENDING`: an inbox item
 nobody could ever action, because resuming checks the run's status and would refuse
 it forever. Caught by a test asserting the documented behaviour. Fixed by
-*committing* the decision before executing — the same lesson M9 learned about run
+*committing* the decision before executing: the same lesson M9 learned about run
 rows, reached from the other direction.
 
 **4. `None` assigned to a JSONB column stores JSON `null`, not SQL NULL.** Found by
 querying Postgres, not through the ORM. SQLAlchemy reads both back as `None`, so the
 test asserting a cancelled run's checkpoint was cleared *passed* while the database
 held `'null'` and `checkpoint IS NULL` was false. NULL is what "nothing to resume"
-means — an operator sweeping for stuck runs with `WHERE checkpoint IS NOT NULL` would
+means: an operator sweeping for stuck runs with `WHERE checkpoint IS NOT NULL` would
 have found every cancelled run in the system. Fixed with `none_as_null=True`; the
 regression test asserts in SQL, because the ORM cannot see the difference. Verified
 by reverting the fix and watching the test fail.
@@ -101,7 +101,7 @@ Real uvicorn, curl, and a real restart:
 6. reject   → rejected; rejecting again → 409
 7. Postgres → run cancelled, checkpoint NULL, error "The action was rejected."
 
-   ——— server killed, process gone, new process started ———
+,, server killed, process gone, new process started, 
 
 8. inbox    → the *other* request still pending, in a brand-new process
 9. approve  → resumed from the checkpoint; execution failed (no calendar connected)
@@ -119,31 +119,31 @@ ruff · ruff format · mypy --strict (232 files) · alembic check · make eval
 713 tests, 2 skipped · 97.14% coverage (gate 97%)
 ```
 
-`make eval` unchanged against M8's baseline — M12 touches no prompt and no retrieval
+`make eval` unchanged against M8's baseline, M12 touches no prompt and no retrieval
 path.
 
 ## Known gaps, deliberately left
 
 **The email half is not built.** `docs/roadmap.md` pairs "Calendar write" with "Email
 draft/send behind approval". There is no Gmail integration to draft into, and building
-one is M14's OAuth work — so `app/agents/email/` is still a stub. The approval
+one is M14's OAuth work, so `app/agents/email/` is still a stub. The approval
 machinery is provider-agnostic: a second action kind is a `requested_action["kind"]`
 and an executor.
 
 **The parser is deterministic and strict.** It reads `YYYY-MM-DD HH:MM` and refuses
 everything looser. "Next Tuesday afternoon" is exactly the judgement a model should
-make, and there is no key here to make it — so it refuses rather than guessing,
+make, and there is no key here to make it, so it refuses rather than guessing
 because a half-understood date puts a meeting in a diary at the wrong time and raises
 nothing.
 
 **Nothing sweeps expired approvals on a timer.** `expire_overdue` exists and is
 tested; no scheduler calls it. It matters less than it looks: `list_pending` filters
 by the clock and deciding on an expired row is refused, so an unswept approval is
-invisible and unactionable — merely untidy.
+invisible and unactionable, merely untidy.
 
 **Whether a model asks for approval at the right moments is untested**, and cannot be
 tested here: the offline provider does not choose tools at all. The gate is in code
-rather than in the model's judgement — which is the only arrangement that would be
+rather than in the model's judgement, which is the only arrangement that would be
 safe even if that judgement *were* being tested.
 
 **Existing Google connections must be reconnected.** The scope widened from
@@ -169,5 +169,5 @@ curl localhost:8099/api/v1/approvals \
   -H "Authorization: Bearer $TOKEN" -H "X-Organization-Id: $ORG"
 ```
 
-Then stop the server, start it again, and list the inbox. The request is still there —
+Then stop the server, start it again, and list the inbox. The request is still there
 which is the whole point.

@@ -1,4 +1,4 @@
-# M1 — Skeleton that runs
+# M1: Skeleton that runs
 
 **Status:** complete (2026-08-11) · **Gate:** `make check` green · **Tests:** 12 passing
 
@@ -11,11 +11,11 @@ and proves all of that with tests that run in CI.
 | Module | Responsibility |
 |---|---|
 | [`app/core/config.py`](../../backend/app/core/config.py) | `Settings` (pydantic-settings) + cached `get_settings()` |
-| [`app/core/exceptions.py`](../../backend/app/core/exceptions.py) | `AppError` base — message + machine-readable code |
+| [`app/core/exceptions.py`](../../backend/app/core/exceptions.py) | `AppError` base: message + machine-readable code |
 | [`app/logging/processors.py`](../../backend/app/logging/processors.py) | `add_request_id` structlog processor |
-| [`app/logging/config.py`](../../backend/app/logging/config.py) | `configure_logging()` — console in dev, JSON in prod |
+| [`app/logging/config.py`](../../backend/app/logging/config.py) | `configure_logging()`: console in dev, JSON in prod |
 | [`app/middleware/request_id.py`](../../backend/app/middleware/request_id.py) | `RequestIDMiddleware` + `request_id_var` ContextVar |
-| [`app/middleware/timing.py`](../../backend/app/middleware/timing.py) | `TimingMiddleware` — one structured line per request |
+| [`app/middleware/timing.py`](../../backend/app/middleware/timing.py) | `TimingMiddleware`: one structured line per request |
 | [`app/api/v1/routes/health.py`](../../backend/app/api/v1/routes/health.py) | `GET /api/v1/health/live` |
 | [`app/api/v1/router.py`](../../backend/app/api/v1/router.py) | v1 aggregate router |
 | [`app/main.py`](../../backend/app/main.py) | `create_app()` factory + `lifespan` |
@@ -35,7 +35,7 @@ bottom of `main.py` purely as uvicorn's target.
 dict lookup, not a re-parse of the environment. `APP_ENV` is a `Literal` of
 exactly three values, so `APP_ENV=prod` fails at startup with a clear error
 instead of silently taking a development branch in production. Tests call
-`get_settings.cache_clear()` between cases — that is why `conftest.py` has an
+`get_settings.cache_clear()` between cases: that is why `conftest.py` has an
 autouse fixture.
 
 **3. The request ID is a ContextVar, and it is the outermost middleware.**
@@ -45,14 +45,14 @@ contextvar before `TimingMiddleware` logs. A ContextVar rather than a global
 because each concurrent request needs its own value under asyncio. An inbound
 `X-Request-ID` is honoured so a trace started by a proxy or the frontend
 survives the hop; otherwise a uuid4 is minted. The value is reset in a
-`finally` block — skip that and the ID leaks into whatever task reuses the
+`finally` block, skip that and the ID leaks into whatever task reuses the
 context.
 
 **4. Liveness touches nothing.**
 `/health/live` reports only that the process is alive. If it checked the
 database, a brief database blip would look like a dead application and an
-orchestrator would restart every container you have. Readiness — which *does*
-probe dependencies and returns 503 — is a separate endpoint arriving in M2.
+orchestrator would restart every container you have. Readiness, which *does*
+probe dependencies and returns 503, is a separate endpoint arriving in M2.
 
 ## Verified at runtime, not just in tests
 
@@ -74,20 +74,20 @@ log line. That is the whole point of M1: one request is greppable end to end.
 
 ## Also changed
 
-- **`pyproject.toml`** — added `[tool.ruff.lint.isort] known-first-party`, so
+- **`pyproject.toml`**: added `[tool.ruff.lint.isort] known-first-party`, so
   `app`/`tests` imports group separately from third-party instead of being
   sorted in among `fastapi` and `httpx`.
-- **74 stub modules** — marked `# mypy: ignore-errors` so the gate can pass
+- **74 stub modules**: marked `# mypy: ignore-errors` so the gate can pass
   before all 16 milestones exist. See [ADR-0002](../adr/0002-unimplemented-stubs-are-excluded-from-mypy.md).
-- **Toolchain** — `uv` installed; the venv runs **Python 3.13.2** (the system
+- **Toolchain**: `uv` installed; the venv runs **Python 3.13.2** (the system
   interpreter is 3.12 and cannot run this project).
 
 ## Known gaps, deliberately left for later
 
-- `GET /health/ready` and `app/monitoring/health.py` — M2, once there is a
+- `GET /health/ready` and `app/monitoring/health.py`, M2, once there is a
   database to probe.
-- Engine/pool creation in `lifespan()` is a TODO — M2.
-- CORS and rate-limit middleware exist as stubs — they arrive with the
+- Engine/pool creation in `lifespan()` is a TODO, M2.
+- CORS and rate-limit middleware exist as stubs: they arrive with the
   frontend (M13) and hardening (M16).
 
 ## Test coverage

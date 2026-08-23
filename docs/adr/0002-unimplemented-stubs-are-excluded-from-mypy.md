@@ -7,8 +7,8 @@
 ## Context
 
 The architecture phase created ~150 named stub modules ahead of implementation.
-Each stub imports the symbols it will eventually use — `AgentState`,
-`get_current_user`, `ApprovalRead` — but those symbols do not exist yet,
+Each stub imports the symbols it will eventually use, `AgentState`
+`get_current_user`, `ApprovalRead`, but those symbols do not exist yet
 because the modules that define them are themselves stubs.
 
 Running the M1 gate exposed the consequence:
@@ -23,7 +23,7 @@ reason, so ruff was handled and mypy was not.
 
 This mattered because `make check` is the definition of done for every
 milestone and the exact gate CI runs. A gate that cannot pass until milestone
-16 provides no signal at milestones 1 through 15 — its failure output looks
+16 provides no signal at milestones 1 through 15, its failure output looks
 identical whether or not you just broke something.
 
 ## Decision
@@ -42,7 +42,7 @@ per-file rather than a path list in `pyproject.toml`.
 
 **Good.** `make check` is green today and stays meaningful: a failure now means
 you broke something. Type-check coverage grows monotonically as milestones
-land — 77 of 151 modules are checked at M1. The pragma sits in the file being
+land, 77 of 151 modules are checked at M1. The pragma sits in the file being
 implemented, so it is impossible to forget in the way a central exclude list is
 forgettable.
 
@@ -54,7 +54,7 @@ definition of done, and it appears in the diff of the file you are working on.
 the code it describes, is the classic stale-config failure. It also makes every
 milestone touch a shared file for no reason.
 
-**Rejected: deleting the stub imports.** The imports are documentation — they
+**Rejected: deleting the stub imports.** The imports are documentation: they
 state what a module will depend on. Deleting them discards the architecture
 work the stubs exist to capture.
 

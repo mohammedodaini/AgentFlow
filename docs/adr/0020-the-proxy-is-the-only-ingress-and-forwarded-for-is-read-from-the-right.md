@@ -27,7 +27,7 @@ changes who the application thinks it is talking to.
 Caddy publishes 80 and 443. The API and the frontend publish on `127.0.0.1`
 only; Postgres, Redis and the worker publish nothing.
 
-The published loopback ports are not decoration — `make smoke` and
+The published loopback ports are not decoration, `make smoke` and
 `make loadtest` use them, and driving the product through TLS with a
 self-signed internal CA to measure latency would be measuring the wrong thing.
 But `8000:8000`, which is what they were, means `0.0.0.0:8000`: a second,
@@ -40,7 +40,7 @@ somebody set it up and left. Caddy obtains and renews in process.
 
 A consequence worth naming: `/metrics` is mounted at the root, and the proxy
 routes only `/api/*` to the API. So the metrics endpoint is no longer publicly
-reachable at all — a request for it lands on Next.js and gets a 404. The token
+reachable at all: a request for it lands on Next.js and gets a 404. The token
 check stays regardless, because that is a property of the application and this
 is a property of one deployment.
 
@@ -52,7 +52,7 @@ things depend on it: the rate limiter's identity for anonymous traffic, and
 
 It was wrong in both deployments the product can be in.
 
-**With no proxy** — which is what production *was* — the header comes from the
+**With no proxy**: which is what production *was*: the header comes from the
 caller and nowhere else. A client sending a different value on every request
 gets a fresh rate-limit bucket every time. The limiter is defeated by one
 header, on the same `/api/v1/auth` prefix the audit had just moved into the
@@ -64,7 +64,7 @@ trail records whatever address the attacker typed.
 The truthful entry is the one our own proxy added, which is the last.
 
 So: the header is read from the right, `TRUSTED_PROXY_HOPS` entries in.
-`0` — the default — ignores the header entirely and uses the socket's peer
+`0`: the default, ignores the header entirely and uses the socket's peer
 address. `docker-compose.prod.yml` sets `1`, because Caddy is in front.
 
 **The default is the decision.** A deployment with nothing in front of it is
@@ -83,7 +83,7 @@ the value is trustworthy, because this file is a deployment detail and
 The residual exposure is stated rather than hidden: with `TRUSTED_PROXY_HOPS=1`,
 a request that reaches the API *without* passing through Caddy can supply its
 own single-entry header and be believed. The only such route is
-`127.0.0.1:8000`, which requires a shell on the host — and an attacker with one
+`127.0.0.1:8000`, which requires a shell on the host, and an attacker with one
 is already past every control in the compose file.
 
 `HTTP_PORT` and `HTTPS_PORT` exist so the stack can be rehearsed where 80 and
@@ -103,7 +103,7 @@ Two bugs surfaced that no test would have found.
 
 **The audit trail still recorded the frontend's own address.** The forwarding
 helper was a private function in `api.ts`, called from `apiFetch`'s header
-builder — and register, login and token refresh do not use `apiFetch`, because
+builder, and register, login and token refresh do not use `apiFetch`, because
 they have no session yet and build their own headers. So the three endpoints
 whose audit records are the entire point of the column recorded
 `172.19.0.7`, the web container. A browser registration through the whole stack
@@ -112,7 +112,7 @@ it.
 
 **The test suite was not isolated from a developer's `.env`.** `Settings` reads
 the repo-root `.env` that the deploy runbook tells you to create, and the drill
-created one — so `test_health.py` failed with `'tlsdrill' != 'dev'`. A previous
+created one, so `test_health.py` failed with `'tlsdrill' != 'dev'`. A previous
 fix had cleared one variable with a comment predicting exactly this. Deleting
 the variable does not help: pydantic-settings parses the file itself and the
 values never pass through `os.environ`. The suite now disables the dotenv source

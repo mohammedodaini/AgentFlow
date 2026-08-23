@@ -10,7 +10,7 @@ M5 accepts uploaded files. Two questions had to be answered before a single
 byte could be written: where do the bytes go, and what does the rest of the
 application know about that?
 
-The tempting answer to the first is "Postgres, in a `bytea` column" — one
+The tempting answer to the first is "Postgres, in a `bytea` column": one
 datastore, one backup, transactional with the metadata. It is wrong at a scale
 this project will reach almost immediately. Every `SELECT *` drags the blob
 across the wire; every backup and every replica carries it; and the single most
@@ -20,7 +20,7 @@ which should not have to step over a 40 MB PDF to answer.
 The second question is the one with a real trade in it. Nothing runs MinIO or a
 GCS emulator on a laptop for a learning project, and nothing serves production
 traffic off a container's filesystem. So local development and production are
-*guaranteed* to differ here — which is not true of Postgres or Redis, where the
+*guaranteed* to differ here, which is not true of Postgres or Redis, where the
 same software runs in both.
 
 ## Decision
@@ -30,13 +30,13 @@ same software runs in both.
 and one implementation, `LocalObjectStorage`.
 
 **A `Protocol`, not an abstract base class.** A backend does not have to import
-from us to satisfy it, and — more usefully — a test double is a plain class
+from us to satisfy it, and, more usefully, a test double is a plain class
 with three methods rather than a subclass carrying inherited machinery.
 
 **Four members, and no more.** `put`, `get`, `delete`, and a key builder. No
 listing, no signed URLs, no copy, no multipart. Each of those is easy to add
 against a real requirement and impossible to remove once something depends on
-it, and the ones a filesystem cannot emulate honestly — signed URLs above all —
+it, and the ones a filesystem cannot emulate honestly, signed URLs above all
 would make the local backend a lie.
 
 **All three methods are `async`,** even though the local backend's I/O is
@@ -48,7 +48,7 @@ exists to prevent. The local backend runs its filesystem calls through
 **A new top-level package,** rather than a module inside an existing one.
 `core/` must stay a dependency-free leaf; `rag/` is about parsing, not
 persistence; `db/` is about Postgres. Storage is its own concern with its own
-lifecycle, built once per process by `create_storage(settings)` — the same
+lifecycle, built once per process by `create_storage(settings)`: the same
 builder shape `create_engine` and `create_redis_client` already use, and
 necessary because there are two processes that each need one: the API and the
 arq worker.
@@ -60,7 +60,7 @@ organizations/<org-uuid>/documents/<doc-uuid>/<sanitized-filename>
 ```
 
 The tenant leading the path makes "erase everything belonging to this customer"
-a prefix operation — which is what a GDPR erasure request actually asks for —
+a prefix operation, which is what a GDPR erasure request actually asks for
 and makes a per-tenant bucket policy or IAM condition expressible later. A flat
 `documents/<uuid>` layout can do neither.
 
@@ -89,7 +89,7 @@ out precisely what someone would need if a bucket were ever misconfigured.
 ## Alternatives rejected
 
 **Bytes in Postgres (`bytea` or large objects).** Transactional with the
-metadata, which is a genuine advantage — no orphaned objects, no compensating
+metadata, which is a genuine advantage: no orphaned objects, no compensating
 deletes. Rejected on the read cost above, and because it puts customer file
 storage on the most expensive and hardest-to-scale tier in the system.
 

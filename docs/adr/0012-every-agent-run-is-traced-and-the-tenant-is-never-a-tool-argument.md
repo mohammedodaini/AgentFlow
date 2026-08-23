@@ -7,12 +7,12 @@
 ## Context
 
 M7's `/ask` is a straight line: retrieve, generate, return. M9 introduces a
-graph — nodes, state, a conditional edge, a cycle — and with it two problems a
+graph, nodes, state, a conditional edge, a cycle, and with it two problems a
 straight line does not have.
 
 **A graph can take a path nobody predicted.** When `/ask` returns a bad answer
 there is exactly one thing that could have gone wrong. When a graph does, the
-question is *which route did it take, and why* — and re-running it does not
+question is *which route did it take, and why*, and re-running it does not
 answer that, because the corpus, the temperature or the wording may all differ.
 
 **A graph gives the model influence over what runs.** Tools take arguments, and
@@ -24,8 +24,8 @@ call is something a model emits.
 ## Decision
 
 **Every run is recorded, before it runs.** `agent_runs` is created and
-*committed* before the graph starts. `agent_steps` records every node —
-`node_name`, `tool_name`, `tool_input`, `tool_output`, `latency_ms`, `tokens` —
+*committed* before the graph starts. `agent_steps` records every node
+`node_name`, `tool_name`, `tool_input`, `tool_output`, `latency_ms`, `tokens`
 and is written even when the run fails.
 
 **The run row is both the observability unit and the billing unit.** Not two
@@ -61,7 +61,7 @@ stored is the shape of the result: how many, from which documents, top score.
 **`checkpoint` is stored and never published.** LangGraph's serialised state is
 what will let M12 pause a run for an approval of arbitrary length. Returning it
 would freeze the graph's internals into a public contract and carry the whole
-retrieved corpus in every response, so it appears in no schema — the same
+retrieved corpus in every response, so it appears in no schema: the same
 whitelisting that keeps `storage_uri` out of `DocumentRead`.
 
 **State must be JSON-serialisable, and that constrains every node.** Chunks live
@@ -73,14 +73,14 @@ state missing.
 **Async cost two real bugs, both found by tests.** A `rollback()` expires every
 ORM object regardless of `expire_on_commit`, so the failure handler touching
 `run.id` triggered a lazy refresh and raised `MissingGreenlet` *inside the error
-handler* — masking the real failure and leaving the run `running` forever. And
+handler*, masking the real failure and leaving the run `running` forever. And
 the service returned a run whose `steps` had never been loaded, so the caller's
 first access was a lazy load that failed during serialisation. Both are fixed by
 passing ids across those boundaries and re-fetching eagerly.
 
 **The agent inherited a safety gap from being one layer up.** Its retrieval tool
 initially called the retriever with no evidence floor, while `/ask` applies
-`MIN_EVIDENCE_SCORE` — so the agent would have answered an unanswerable question
+`MIN_EVIDENCE_SCORE`: so the agent would have answered an unanswerable question
 from zero-similarity chunks, exactly the bug M7 fixed, reintroduced by a
 wrapper. Found by a test asserting the retry path ran and watching it never
 trigger. A shared seam does not make behaviour shared; only calling it the same
@@ -90,11 +90,11 @@ way does.
 edges decide what runs; the model does not. `LLMProvider` is a text-in/text-out
 seam (ADR-0010), the offline provider cannot emit tool calls, and there is no API
 key here to exercise one that can. The structure is built so that changing this
-is a change to one node — the tools are real `BaseTool`s with real descriptions,
+is a change to one node: the tools are real `BaseTool`s with real descriptions
 and `agent_steps` already records what a tool-calling model would produce.
 Claiming more would be the more comfortable sentence and the false one.
 
 **The rewrite is deterministic, per `docs/agents.md`.** "If code can do it, code
-does it — LLM calls are for judgment, not plumbing." Stripping stopwords to turn
+does it, LLM calls are for judgment, not plumbing." Stripping stopwords to turn
 a question into keywords is plumbing. Whether a model-written rewrite does
 better is now a question M8's harness can answer, and answering it needs a key.

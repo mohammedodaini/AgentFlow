@@ -1,11 +1,11 @@
-# M8 — Evaluation: the golden set, the metrics, and the gate
+# M8: Evaluation: the golden set, the metrics, and the gate
 
 - **Date:** 2026-08-13
 - **Status:** shipped
 - **ADRs:** [ADR-0011](../adr/0011-evaluation-is-a-committed-baseline-not-a-dashboard.md)
 
 M6 and M7 shipped five numbers labelled "a starting point, not a finding". M8 is
-the instrument that turns them into findings — and the first thing it measured
+the instrument that turns them into findings, and the first thing it measured
 contradicted an assumption the previous two milestones rested on.
 
 ## What was built
@@ -37,7 +37,7 @@ The measurement is better than an argument:
 | 0.220 | 2 / 4 | 6 / 11 | 0.467 |
 | 0.263 | 4 / 4 | 9 / 11 | 0.400 |
 
-The two populations overlap outright — the lowest-scoring **answerable** question
+The two populations overlap outright: the lowest-scoring **answerable** question
 scores 0.069, the highest-scoring **unanswerable** one scores 0.262. No line
 separates them, so every threshold that catches a refusal throws away more real
 answers than it saves. Zero is optimal, and now it is optimal *for a reason on
@@ -45,7 +45,7 @@ record* rather than by argument.
 
 The conclusion generalises further than the number: refusal is a judgement about
 meaning, and cosine similarity does not encode meaning. It belongs to the model
-reading the context — which is what `app/prompts/rag/system.md` instructs, and
+reading the context, which is what `app/prompts/rag/system.md` instructs, and
 what `MIN_EVIDENCE_SCORE` in `generation.py` deliberately does not attempt.
 
 ## The first baseline
@@ -59,17 +59,17 @@ faithfulness       1.600     relevance          1.867     completeness  1.667
 
 Read honestly:
 
-- **recall 1.000, mrr 0.864** — retrieval finds the right document for every
+- **recall 1.000, mrr 0.864**: retrieval finds the right document for every
   answerable question, usually at rank 1. This is the number that bounds
   everything else, and it is good.
-- **precision 0.348** — `top_k=5` over a four-document corpus returns nearly
+- **precision 0.348**: `top_k=5` over a four-document corpus returns nearly
   everything. An artefact of a small dataset, not a defect.
-- **refusal_accuracy 0.000** — all four unanswerable questions got answered. The
+- **refusal_accuracy 0.000**: all four unanswerable questions got answered. The
   extractive offline provider *cannot* refuse: it quotes the best-overlapping
   sentence and always produces something. This is a limitation of the offline
   model, and it stays in the baseline as a labelled gap rather than being
   excluded to make the report look better.
-- **answer_match 0.273, judge scores ~1.7** — the same cause. A provider that
+- **answer_match 0.273, judge scores ~1.7**: the same cause. A provider that
   quotes a single sentence rarely contains a specific expected substring.
 
 **Every one of these changes the moment a real key exists**, which is the point
@@ -78,7 +78,7 @@ of committing the baseline: the change will be visible as a diff.
 ## Decisions worth arguing about
 
 **Examples name documents, not chunks.** The obvious design records the chunk id
-that should be retrieved — and it is unusable, because chunk ids depend on
+that should be retrieved, and it is unusable, because chunk ids depend on
 `chunk_size_tokens` and `chunk_overlap_tokens`, the settings under test. A golden
 set keyed on them would need regenerating every time the variable changed, which
 makes it a mirror rather than a measurement.
@@ -91,8 +91,8 @@ number by adding more unanswerable questions.
 example from the average, which *raises* the score of a run whose answers broke
 the judge. A harness must never make a broken run look better than a working one.
 
-**The judge's biases are documented in its own module docstring** — verbosity,
-position, self-preference — with what is done about each, and for
+**The judge's biases are documented in its own module docstring**: verbosity
+position, self-preference, with what is done about each, and for
 self-preference an admission that nothing can be while the judge and the
 generator are the same model.
 
@@ -109,7 +109,7 @@ the code no longer had. Caught reviewing the diff; the comment went.
 
 **`asyncio.run` cannot nest.** The CLI test was written `async def`, so
 `cli.main()` tried to start a loop inside a running one. The tests are
-synchronous instead — correct, since the thing under test is a process.
+synchronous instead, correct, since the thing under test is a process.
 
 ## Verified at runtime
 
@@ -117,10 +117,10 @@ synchronous instead — correct, since the thing under test is a process.
 
 - A clean run: exit 0, report written, recall 1.000.
 - A planted unbeatable baseline: **exit 1**, failing metrics listed. This is the
-  assertion the milestone rests on — a gate that cannot fail is not a gate.
+  assertion the milestone rests on: a gate that cannot fail is not a gate.
 - A shortfall inside the 2% tolerance: exit 0.
 - After every run, `SELECT count(*) FROM organizations WHERE name LIKE 'eval-%'`
-  returns 0 — including when the run raises partway, because cleanup is in a
+  returns 0, including when the run raises partway, because cleanup is in a
   `finally`. A leftover corpus would inflate the next run's recall, and the
   improvement would look real.
 
@@ -131,15 +131,15 @@ ruff · ruff format · mypy --strict (209 files) · alembic check
 456 tests, 2 skipped · 98.35% coverage (gate 97%)
 ```
 
-Pyramid: 264 unit / 88 integration / 106 e2e. No migration — M8 adds no tables.
+Pyramid: 264 unit / 88 integration / 106 e2e. No migration, M8 adds no tables.
 
 ## Known gaps, deliberately left
 
 **The 2% regression tolerance is a guess.** Named as one. It should tighten once
 several runs show how much these numbers move on their own.
 
-**One dataset, fifteen questions.** Small on purpose — a set a human can read in
-one sitting is a set a human will keep honest — but small enough that a single
+**One dataset, fifteen questions.** Small on purpose: a set a human can read in
+one sitting is a set a human will keep honest, but small enough that a single
 example moves `recall` by nine points. More questions before more metrics.
 
 **No per-question cost tracking.** The `Completion` token counts exist and the
@@ -148,7 +148,7 @@ second, worse version.
 
 **Nothing is tuned yet.** M8 built the instrument and used it once, on the one
 question where there was a strong prior to overturn. Sweeping `chunk_size_tokens`
-and `chunk_overlap_tokens` is now a `for` loop over `make eval` — and it is worth
+and `chunk_overlap_tokens` is now a `for` loop over `make eval`, and it is worth
 running against a *real* embedder, because a sweep against the hashing one would
 tune the geometry for lexical overlap and be actively misleading.
 
@@ -158,7 +158,7 @@ tune the geometry for lexical overlap and be actively misleading.
 make up
 cd backend && uv run alembic upgrade head
 make eval                    # exit 1 on a regression
-make eval-baseline           # accept these scores — after reading the report
+make eval-baseline           # accept these scores, after reading the report
 ```
 
 Reports land in `backend/var/eval/` (gitignored). The baseline at

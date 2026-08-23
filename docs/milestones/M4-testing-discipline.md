@@ -1,4 +1,4 @@
-# M4 — Testing discipline
+# M4: Testing discipline
 
 **Status:** complete (2026-08-12) · **Gate:** `make check` green · **Tests:** 156 passing (was 115) · **Coverage:** 98.7%
 
@@ -59,7 +59,7 @@ integration  20/156
 e2e          53/156
 ```
 
-A serviceable shape — a wide, fast base — though e2e is heavier than the
+A serviceable shape: a wide, fast base, though e2e is heavier than the
 classic pyramid wants. That is the right trade for now: those tests are what
 prove the tenancy boundary holds, and there is no cheaper way to check it. If
 they get slow, the answer is to push privilege-escalation cases down into
@@ -67,12 +67,12 @@ service-level tests, not to delete them.
 
 **4. The coverage gate is honest about what it measures.** Roughly two thirds
 of `app/` is still scaffolding. Measuring all of it would report how much of
-the roadmap exists rather than how well the built part is tested — a number
+the roadmap exists rather than how well the built part is tested: a number
 that *falls* every time someone adds a stub, which teaches people to lower the
 threshold. So stubs are omitted, and `fail_under = 97` applies to real code.
 
 The interesting part is that the omit list cannot rot. An implemented module
-left on the list is untested code reporting as nothing at all — the exact
+left on the list is untested code reporting as nothing at all: the exact
 failure a gate exists to prevent, and the default behaviour of every
 hand-maintained exclusion list. `test_stub_manifest.py` reconciles the list
 against the source tree **in both directions**, using a signal that is crude
@@ -85,8 +85,8 @@ Coverage was **under-reporting by 11 points**, and the reason mattered more
 than the number.
 
 `organization_service.py` reported 57% while the end-to-end suite was
-demonstrably exercising it. The "uncovered" lines included `return membership`
-— on the hottest path in the application, run by nearly every request in the
+demonstrably exercising it. The "uncovered" lines included `return membership`,
+on the hottest path in the application, run by nearly every request in the
 suite.
 
 The cause: SQLAlchemy's asyncio layer runs its work inside greenlets, and
@@ -113,13 +113,13 @@ end-to-end suite structurally cannot reach:
 
 - a token whose user was **deleted** between issue and use
 - a token whose subject is not a UUID (only reachable if the signing key
-  leaked — and it still must not 500)
+  leaked, and it still must not 500)
 - login against a **deactivated** account, failing with the *same* message as a
   wrong password
 - a password hash with **obsolete cost parameters** being silently upgraded at
   login (tested with a genuinely weak Argon2 hash, not a fabricated string)
 - the **slug allocation** loop giving up instead of hanging
-- the **denylist TTL** matching the token's remaining life — the property that
+- the **denylist TTL** matching the token's remaining life: the property that
   stops the key space growing forever
 - a token expiring *between* being decoded and being revoked
 - the error handler's unmapped-error path, its body shape, and
@@ -140,15 +140,15 @@ $ make test-fast
 83 passed, 73 deselected in 0.66s
 ```
 
-156 tests in under ten seconds, up from 115 in 13.5 — more tests in less time,
+156 tests in under ten seconds, up from 115 in 13.5, more tests in less time
 because rollback is cheaper than truncation and the schema is built once.
 
 ## Known gaps, deliberately left for later
 
 - **No `pytest-xdist`.** Parallelism needs a database per worker, not per test.
   Worth doing when the suite passes ~30 seconds; it is at 10.
-- **Tests build the schema from models, not migrations.** Deliberate — it keeps
-  schema bugs separate from migration bugs — and `alembic check` covers the
+- **Tests build the schema from models, not migrations.** Deliberate: it keeps
+  schema bugs separate from migration bugs, and `alembic check` covers the
   other question. A CI step running `alembic upgrade head` against an empty
   database would close it properly.
 - **No mutation testing.** Coverage says a line ran, not that anything would
@@ -165,6 +165,6 @@ because rollback is cheaper than truncation and the schema is built once.
 ```bash
 make up && make migrate
 make check          # the full gate, including the coverage threshold
-make test-fast      # unit only, sub-second — the loop to use while writing code
+make test-fast      # unit only, sub-second: the loop to use while writing code
 make test-pyramid   # the shape of the suite
 ```

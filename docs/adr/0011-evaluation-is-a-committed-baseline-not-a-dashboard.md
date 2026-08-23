@@ -12,7 +12,7 @@ M6 and M7 shipped with five numbers documented as guesses: `chunk_size_tokens`
 comment saying, in effect, "M8 replaces this with a measurement". This is M8.
 
 The failure mode being designed against is specific and common. A team builds an
-eval harness, runs it once, screenshots the numbers, and never runs it again —
+eval harness, runs it once, screenshots the numbers, and never runs it again
 because it is a script somebody has to remember, its output is prose, and
 nothing breaks when it is skipped. Six months later the prompt has changed forty
 times and nobody can say whether retrieval got better or worse.
@@ -39,7 +39,7 @@ comparison pass by construction.
 against whatever happened to be in the database would measure the database.
 
 **Examples name documents, not chunks.** Chunk ids do not exist until ingestion
-and depend on `chunk_size_tokens` and `chunk_overlap_tokens` — the settings this
+and depend on `chunk_size_tokens` and `chunk_overlap_tokens`: the settings this
 milestone exists to tune. A golden set keyed on them would need regenerating on
 every change to the variable under test.
 
@@ -55,7 +55,7 @@ ADR-0007, so the harness and its regression gate run with no API key.
 
 **Every knob now has an instrument.**
 `test_metrics_move_when_retrieval_is_crippled` asserts the numbers actually
-respond to a configuration change — a measurement that reads the same however
+respond to a configuration change: a measurement that reads the same however
 the system is configured measures nothing, and that test is what stops this
 harness quietly becoming decoration.
 
@@ -63,8 +63,8 @@ harness quietly becoming decoration.
 `DEFAULT_MIN_SCORE` was left at 0.0 at M6 on the argument that a threshold
 picked by eye hides answers. The measurement came back stronger than the
 argument: on the `handbook` set, no non-zero threshold beats zero. The score
-distributions overlap outright — the lowest-scoring answerable question scores
-0.069, the highest-scoring unanswerable one 0.262 — so every threshold that
+distributions overlap outright: the lowest-scoring answerable question scores
+0.069, the highest-scoring unanswerable one 0.262, so every threshold that
 catches a refusal discards more real answers than it saves. **Refusal is a
 judgement about meaning, and a similarity score cannot make it.** It belongs to
 the model reading the context.
@@ -73,7 +73,7 @@ the model reading the context.
 The offline extractive provider has no capacity to decide that a passage fails
 to answer a question; it quotes the best-overlapping sentence and always
 produces something. Whether Claude does better is exactly what cannot be
-measured without a key — so the number sits in the baseline as a known, labelled
+measured without a key, so the number sits in the baseline as a known, labelled
 gap rather than being quietly excluded from the aggregate.
 
 **Refusal examples are excluded from the recall average.** They score a free 1.0
@@ -86,7 +86,7 @@ inventing.
 a run over zero examples scores a perfect 1.0 on everything, and in CI that is
 indistinguishable from a run over the whole golden set.
 
-**The tolerance is 2%, and that is a guess** — named as one, in the docstring. It
+**The tolerance is 2%, and that is a guess**: named as one, in the docstring. It
 should be tightened once several runs show how much these numbers move on their
 own. But a gate that fires on a 0.001 drop gets muted within a week, and a muted
 gate is no gate at all.

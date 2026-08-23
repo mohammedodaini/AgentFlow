@@ -1,11 +1,11 @@
-# M14 — More integrations: one pattern, repeated, and where it did not fit
+# M14: More integrations: one pattern, repeated, and where it did not fit
 
 - **Date:** 2026-08-20
 - **Status:** shipped
 - **ADRs:** [ADR-0017](../adr/0017-a-perpetual-credential-is-not-an-expired-one.md)
 
 `docs/roadmap.md` describes M14 as *"Slack, Notion, GitHub, Stripe (one pattern,
-repeated — by now integrations are routine)"*. That turned out to be true of the
+repeated, by now integrations are routine)"*. That turned out to be true of the
 seam and false of the layer underneath it, which is the whole story of this
 milestone.
 
@@ -45,7 +45,7 @@ itself.
 **No new dependencies.** `httpx` was already here. The official SDKs listed as
 optional in `docs/packages.md` (`slack-sdk`, `PyGithub`, `stripe`,
 `notion-client`) were not added: each would be a package to keep current for one
-or two endpoints, and the boundary rule — provider types never leak upward — means
+or two endpoints, and the boundary rule, provider types never leak upward, means
 their models would be translated away at the door regardless.
 
 ## The five providers, and what each one breaks
@@ -53,38 +53,38 @@ their models would be translated away at the door regardless.
 Every one of them diverges from Google somewhere that a status-code-first client
 gets wrong. Each divergence has a test naming what would break.
 
-**Slack reports failure with HTTP 200.** A reused code, a bad secret, a dead token
-— all arrive as `200 OK` with `{"ok": false, "error": "..."}`. `response.is_error`
+**Slack reports failure with HTTP 200.** A reused code, a bad secret, a dead token,
+all arrive as `200 OK` with `{"ok": false, "error": "..."}`. `response.is_error`
 is False for every one. Written like `GoogleCalendarOAuth`, which checks the status
 first, a failed exchange sails past every check and raises `KeyError:
 'access_token'` three frames from the provider that refused us. The same applies to
 its API: a dead token would have produced an empty channel list rather than an
-error — an integration that appears to work and reports that the workspace has no
+error: an integration that appears to work and reports that the workspace has no
 channels.
 
 **GitHub's token endpoint is not JSON unless you ask.** It defaults to
 `application/x-www-form-urlencoded`, so `response.json()` raises, `_json_or_empty`
 swallows it, and the error reads "GitHub's token response contained no
-access_token" — the right provider and the wrong cause. It also reports a bad code
+access_token": the right provider and the wrong cause. It also reports a bad code
 with HTTP 200, like Slack.
 
 **Notion wants the client credentials in an `Authorization: Basic` header**, not
 in the body. It is the one provider where getting the *location* of the secret
-wrong looks exactly like getting the secret wrong. It has **no scopes at all** —
-access is granted per page, in a picker — so `SCOPES` is empty and
+wrong looks exactly like getting the secret wrong. It has **no scopes at all**
+access is granted per page, in a picker, so `SCOPES` is empty and
 `Integration.scopes` is `[]` for every Notion connection. Writing something
 plausible like `["read_content"]` would put a permission in the audit list that
 Notion never issued.
 
 **Stripe hands over a live secret key.** The Connect access token is an ordinary
-`sk_live_…` for the connected account — the same string that business's own
+`sk_live_…` for the connected account: the same string that business's own
 engineers keep in production. What bounds it is the `read_only` scope and nothing
 else, which is why `StripeClient` has no method that is not a GET. Stripe is also
 the only provider here where read-only is a first-class grant.
 
 **Gmail lists message ids and nothing else.** No subject, no sender, no date;
 each needs a second request, so ten messages cost eleven calls. `MAX_RESULTS` is
-10 for that reason — the bound is a request budget, not a page size. And a message
+10 for that reason: the bound is a request budget, not a page size. And a message
 body must be **base64url**: standard base64 produces `+` and `/`, which Gmail
 rejects with `400 Invalid value for ByteString`, and most short messages contain
 neither character, so `b64encode` works in testing and fails on the first message
@@ -96,7 +96,7 @@ M11 requested `calendar.readonly` and M12 earned the write by building approvals
 first. M14 keeps that rule, and it has a visible price.
 
 **GitHub sees public repositories only.** Classic OAuth has no read-only scope for
-private repositories — `repo` is read *and write* to code, issues, pull requests,
+private repositories, `repo` is read *and write* to code, issues, pull requests
 webhooks and settings, across every repository the user can reach. Asking for it
 so that a list of names could include private repos would mean everyone who
 connected GitHub had handed this application the ability to force-push to their
@@ -106,13 +106,13 @@ expects, and that is the trade, stated rather than hidden.
 **Gmail asks for `gmail.compose`, which is broader than `gmail.send`.** The agent
 creates a draft and then sends that draft, because a failed send then leaves the
 message in the user's own Drafts folder rather than losing the text. `compose` can
-also read and delete drafts, and nothing here does either — so a user reading their
+also read and delete drafts, and nothing here does either, so a user reading their
 consent screen sees a wider permission than the feature strictly needs. It is the
 right trade for a message that cannot be unsent, and it is a trade.
 
 ## The email agent
 
-M12's deferred half, and it needed no new approval machinery — which is what
+M12's deferred half, and it needed no new approval machinery, which is what
 ADR-0015 claimed and had not demonstrated. `ApprovalService` gained one method
 differing from the calendar one in two lines.
 
@@ -128,8 +128,8 @@ differing from the calendar one in two lines.
 `kind`. Because a registry lookup now sits between the approval and the executor,
 the invariant ADR-0015 described as "identical by construction" became worth
 *checking*: the approval row's action must equal the run checkpoint's, or the run
-refuses and nothing is sent. It cannot fire today — the two are written in one
-transaction from the same dict — and the consequence if it ever did is a human
+refuses and nothing is sent. It cannot fire today: the two are written in one
+transaction from the same dict, and the consequence if it ever did is a human
 authorising one message while another goes out.
 
 **One deliberate exception to M12's tracing rule.** The email body is not written
@@ -140,7 +140,7 @@ only through checked endpoints. Being exact: the body is still in
 three to one rather than hiding anything.
 
 **The parser is deterministic and strict**, reading
-`<address> about <subject> saying <body>` and refusing everything looser — the same
+`<address> about <subject> saying <body>` and refusing everything looser: the same
 reason as M12's date parser, with sharper stakes. A half-understood calendar
 instruction puts a meeting at the wrong time; a half-understood email instruction
 sends the wrong words to a real person, under the user's name, with no unsend.
@@ -152,7 +152,7 @@ Six. The first two are inherited from M11, and neither was visible to a test.
 **1. Every Slack, Notion and GitHub integration would have died on first use.**
 `needs_refresh()` treated a NULL `expires_at` as expired; those three providers
 issue no expiry and no refresh token, so `get_fresh_token` marked the integration
-`REVOKED` and told the user to reconnect — which produced an identical credential
+`REVOKED` and told the user to reconnect, which produced an identical credential
 and an identical result. Forever.
 
 Invisible because `OfflineOAuthProvider` always issued a Google-shaped grant, so
@@ -167,7 +167,7 @@ integration.revoked     provider=slack reason=no_refresh_token
 Two lines apart.
 
 **2. A revocation did not survive the request that discovered it. Found with
-curl.** `_mark_revoked` *flushed*, and every caller then raises `NotFoundError` —
+curl.** `_mark_revoked` *flushed*, and every caller then raises `NotFoundError`
 and `get_db` rolls the session back on any exception, which is the whole point of
 session-per-request. So the failure that prompted the write discarded it. The API
 said "access was revoked, reconnect it" while the row stayed `ACTIVE`, and every
@@ -175,8 +175,8 @@ later call rediscovered the same thing.
 
 Every existing test missed it because the integration tests call the service
 directly and assert inside the same transaction, where a flush *is* visible. Only
-an HTTP round trip shows it. Fixed by committing — the ADR-0015 rule reached from a
-third direction — and the regression test lives in `tests/e2e/` for that reason.
+an HTTP round trip shows it. Fixed by committing: the ADR-0015 rule reached from a
+third direction, and the regression test lives in `tests/e2e/` for that reason.
 
 **3. `REVOKED` had one writer, on a path three providers never take.** M11 only
 recorded a revocation when a *refresh* was rejected. A perpetual credential is
@@ -187,14 +187,14 @@ getting a token and noticing it died one operation.
 **4. `Integration.scopes` was wrong for every comma-separating provider.** M11
 split on whitespace because RFC 6749 says space-delimited and Google obeys it.
 Slack and GitHub send commas, so the first Slack connection would have stored
-`chat:write,channels:read` as a single 35-character scope. Nothing raises — it is
-display and audit data — so the damage is a permissions list that is wrong in the
+`chat:write,channels:read` as a single 35-character scope. Nothing raises: it is
+display and audit data, so the damage is a permissions list that is wrong in the
 one place a human goes to find out what they granted.
 
 **5. The shared base class carried Google Calendar's 403 message.** M11 hard-coded
 "This Google account was connected without permission to change the calendar.
 Reconnect it to grant write access" into `BaseClient.post_json`. Correct with one
-provider; wrong the moment there were six — a 403 from Slack would have advised a
+provider; wrong the moment there were six: a 403 from Slack would have advised a
 user to reconnect a calendar they may never have connected. Moved to an
 overridable `forbidden_message`.
 
@@ -202,7 +202,7 @@ overridable `forbidden_message`.
 test connected Slack and called `/slack/channels`; the offline server had issued a
 token no real Slack would honour, so the request went out over the wire, took
 252ms, came back 401, and failed for a reason unrelated to the code under test.
-That is the mild version — the dangerous one is the same request *succeeding*,
+That is the mild version: the dangerous one is the same request *succeeding*
 leaving a suite that is green on a good day, red during somebody else's incident,
 and green again by the time anyone looks.
 
@@ -222,7 +222,7 @@ Real uvicorn, real Postgres, curl, and a real restart.
                             all active, callback carrying no auth header at all
 3. slack after connecting → status=active     (M11: revoked, on first use)
 4. slack/channels         → 404 "Access to this slack account was revoked."
-   slack after that       → status=revoked    (M11: still active — bug 2)
+   slack after that       → status=revoked    (M11: still active, bug 2)
 5. propose an email       → paused_for_approval, whole message in the action
 6. an unparseable one     → succeeded, no approval, and a message showing the form
 7. reject                 → run cancelled, "The action was rejected.", nothing sent
@@ -236,7 +236,7 @@ propose → kill the server → process gone → start a new one
   → the approval is still pending, and the body is still intact
 ```
 
-**In a real browser**, `make smoke` — 21 checks, 21 passing, including the four
+**In a real browser**, `make smoke`, 21 checks, 21 passing, including the four
 that would regress silently: cookies httpOnly, tokens invisible to
 `document.cookie`, the trace never leaking `checkpoint`, and no token string ever
 rendered on the integrations page.
@@ -249,7 +249,7 @@ ruff · ruff format · mypy --strict (240 files) · alembic check · make eval
 frontend: lint · typecheck · build (10 routes) · smoke 21/21
 ```
 
-`make eval` unchanged against M8's baseline — M14 touches no prompt and no
+`make eval` unchanged against M8's baseline, M14 touches no prompt and no
 retrieval path.
 
 ## Known gaps, deliberately left
@@ -272,7 +272,7 @@ adding it is a deploy.
 obvious next feature and it is not built, for the reason M11 gave about the
 calendar: a write scope granted a milestone before anything uses it means every
 connected workspace has already said yes to something nobody has reviewed. The
-approval machinery is ready — a second action kind is a `kind` and an executor.
+approval machinery is ready: a second action kind is a `kind` and an executor.
 
 **Nothing paginates.** Every listing returns one page. A Slack workspace with
 4,000 channels shows the first 100.
@@ -288,6 +288,6 @@ cd frontend && pnpm start                        # in a third
 ```
 
 Then open http://localhost:3000/integrations, connect anything, and watch the
-browser leave for `offline.agentflow.test` — a domain RFC 2606 reserves and no DNS
+browser leave for `offline.agentflow.test`: a domain RFC 2606 reserves and no DNS
 resolves, so a stray offline URL in a real deployment fails loudly instead of
 quietly reaching somebody's server.
