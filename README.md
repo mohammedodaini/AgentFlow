@@ -2,7 +2,7 @@
 
 An AI employee for small businesses: connects to Gmail, Calendar, Drive, Slack,
 Notion, GitHub, and Stripe; answers questions over your company documents (RAG);
-drafts emails, schedules meetings, generates proposals — with human approval
+drafts emails, schedules meetings, generates proposals  with human approval
 before any dangerous action.
 
 > **Status:** architecture phase. See [docs/](docs/) for the full design.
