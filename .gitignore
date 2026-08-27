@@ -52,3 +52,7 @@ backend/requirements.audit.txt
 
 # Scratch output from a manual gitleaks run; CI prints its findings instead.
 .gitleaks-report.json
+
+# Personal Claude Code config, never shared
+.claude/settings.local.json
+scripts/com.agentflow.continue.plist
