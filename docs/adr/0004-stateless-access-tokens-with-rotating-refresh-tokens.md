@@ -48,9 +48,9 @@ interchangeable.
 
 ## Consequences
 
-**Good.** Authentication costs one HMAC verification and no network round trip
-— property 1. Any process holding the signing key can verify a token, so the
-worker needs no session store — property 2. A stolen refresh token stops
+**Good.** Authentication costs one HMAC verification and no network round trip,
+property 1. Any process holding the signing key can verify a token, so the
+worker needs no session store, property 2. A stolen refresh token stops
 working the moment the real user next refreshes, and its reuse is *detectable*:
 presenting an already-spent token is either theft or a tab race, and it is
 logged as `auth.refresh_token_replayed`. Logout genuinely ends the session.
@@ -66,13 +66,13 @@ minutes is the dial: shorten it for more safety and more refresh traffic,
 lengthen it for the reverse.
 
 That statement has one exception worth knowing. `get_current_user` loads the
-user row on every request, so *deactivation* does take effect immediately — the
+user row on every request, so *deactivation* does take effect immediately: the
 token verifies, then the lookup finds `is_active=False` and rejects it. It is
 logout specifically, and role changes, that wait out the window.
 
 **Also bad.** HS256 means every verifier can also mint. That is fine while one
 service does both, and becomes wrong the first time an external service needs
-to verify a token — at which point this moves to RS256 and the verifier gets
+to verify a token, at which point this moves to RS256 and the verifier gets
 only the public key. `jwt_algorithm` is already configuration for that reason.
 
 ## Alternatives rejected
@@ -80,7 +80,7 @@ only the public key. `jwt_algorithm` is already configuration for that reason.
 **Server-side sessions (a session id in a cookie, state in Redis).** Genuinely
 simpler to reason about, and revocation is instant and total. Rejected on
 property 1: every request becomes a Redis round trip, and Redis becomes a hard
-dependency of *authentication* rather than of logout — when it blinks, nobody
+dependency of *authentication* rather than of logout, when it blinks, nobody
 can use the product at all, instead of nobody being able to sign out.
 
 **Long-lived access tokens with no refresh token.** One credential, no rotation
@@ -88,13 +88,13 @@ machinery. Rejected on property 3: the only revocation available is a denylist
 consulted on every request, which is the previous option wearing a JWT.
 
 **Checking access tokens against the denylist too.** Buys instant logout and
-gives up the entire reason for JWTs. If that becomes a requirement — and for
-some compliance regimes it will — the honest move is to adopt server-side
+gives up the entire reason for JWTs. If that becomes a requirement, and for
+some compliance regimes it will: the honest move is to adopt server-side
 sessions deliberately, rather than bolt a lookup onto every request and keep
 calling it stateless.
 
 **No rotation: a refresh token reusable until it expires.** Less code. Rejected
-because it makes theft undetectable and unbounded — a copied refresh token
+because it makes theft undetectable and unbounded: a copied refresh token
 would work for the full seven days with nothing to notice, whereas rotation
 guarantees exactly one of the two holders breaks immediately, and that this
 fact appears in the logs.
@@ -102,8 +102,8 @@ fact appears in the logs.
 ## Notes for later milestones
 
 - Replay currently rejects the single token. The stronger response, from the
-  OAuth 2.0 security BCP, is to revoke the whole token *family* — every session
-  descended from the same login — on the theory that a replay means one of the
+  OAuth 2.0 security BCP, is to revoke the whole token *family*: every session
+  descended from the same login, on the theory that a replay means one of the
   two holders is an attacker and you cannot tell which. That needs per-user
   token tracking, and is deliberately deferred.
 - Nothing here rate-limits `/auth/login`. Password guessing is currently

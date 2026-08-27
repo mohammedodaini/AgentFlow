@@ -18,9 +18,9 @@ uncommitted data to *another process*.
 
 Enqueue inside the transaction and the sequence can be:
 
-1. API inserts the document row — not yet committed.
+1. API inserts the document row: not yet committed.
 2. API pushes the job to Redis. Redis knows nothing about our transaction.
-3. A worker — idle, milliseconds away — dequeues it and queries for the row.
+3. A worker: idle, milliseconds away, dequeues it and queries for the row.
 4. Nothing. The row is invisible outside the API's open transaction.
 5. API commits.
 
@@ -44,7 +44,7 @@ await enqueue_ingestion(queue, ...)    # advertised second
 `DELETE /documents/{id}` does the mirror image, for the mirror reason: the row
 is deleted and committed before the bytes are removed. Deleting the object
 first and then failing to commit leaves a surviving row pointing at bytes that
-are gone — a broken invariant nothing detects until a user opens the document.
+are gone: a broken invariant nothing detects until a user opens the document.
 The other order risks an orphaned file, which costs money rather than
 correctness.
 
@@ -57,7 +57,7 @@ exception.
 
 The first implementation used FastAPI's `BackgroundTasks`, on the documented
 belief that a dependency with `yield` runs its exit code *before* the response
-is sent, and background tasks *after* — which would have given the right order
+is sent, and background tasks *after*, which would have given the right order
 for free, with no commit in the route.
 
 On FastAPI 0.141 / Starlette 1.6 it is the other way round: the dependency exit
@@ -69,7 +69,7 @@ It was caught by
 which records the real order of `commit` and `enqueue` and asserts on it. That
 test exists precisely because the guarantee belongs to the framework rather
 than to us: a comment claiming it would have gone on being wrong indefinitely,
-and the symptom in production is a document stuck in `pending` — not an error,
+and the symptom in production is a document stuck in `pending`: not an error
 not an alert, just nothing happening.
 
 Its first version was wrong in an instructive way too. It instrumented the
@@ -88,21 +88,21 @@ visible, commented, and limited to endpoints that hand work to another process.
 
 **Bad, and unfixed.** If the process dies between the commit and the enqueue,
 the document is committed as `pending` and no job exists. The same happens if
-Redis is unreachable — the route logs the failure and still answers 202, because
+Redis is unreachable: the route logs the failure and still answers 202, because
 the upload genuinely *was* accepted, and answering 500 would invite a retry that
 creates a duplicate.
 
 That gap is why `tasks` is a table rather than trusting Redis to remember. The
 row is committed, says `queued`, and is exactly what a sweeper re-enqueues.
-**The sweeper is not built** — a `tasks` row stuck in `queued` for more than a
+**The sweeper is not built**: a `tasks` row stuck in `queued` for more than a
 few minutes is currently invisible, and closing that is M16 work. The proper end
 state is the transactional outbox pattern: write the intent in the same
 transaction (done), and have a separate process publish it (not done).
 
 **Worth knowing.** arq job ids are derived from the task row
 (`ingest:<task-uuid>`) rather than random, and arq treats a job id as an
-idempotency key. So a retried request — or a future sweeper re-enqueueing
-something that only *looked* stuck — cannot put two copies of the same work in
+idempotency key. So a retried request, or a future sweeper re-enqueueing
+something that only *looked* stuck, cannot put two copies of the same work in
 the queue.
 
 ## Alternatives rejected
@@ -110,7 +110,7 @@ the queue.
 **Enqueue inside the transaction and let the worker retry when the row is
 missing.** The common shortcut. Rejected because "not committed yet" and
 "deleted by the user" are indistinguishable to the worker, and they need
-opposite responses — wait and retry versus stop immediately. Guessing wrong in
+opposite responses, wait and retry versus stop immediately. Guessing wrong in
 either direction is worse than not having the race.
 
 **Defer the job by a few seconds (`_defer_by`).** Makes the race unlikely
@@ -119,7 +119,7 @@ A timing window is not a guarantee.
 
 **A SQLAlchemy `after_commit` event hook.** The right shape, and it does not
 fit: the event is synchronous and the enqueue is a coroutine, so it would have
-to schedule a task onto the loop from inside a sync callback — more machinery
+to schedule a task onto the loop from inside a sync callback, more machinery
 and more failure modes than one explicit `await session.commit()`.
 
 **A full transactional outbox now.** The correct long-term answer, and it needs

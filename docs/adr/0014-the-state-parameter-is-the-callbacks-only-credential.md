@@ -8,7 +8,7 @@
 
 Every credential this system has held so far was its own: a password hash, a JWT
 it signed, an API key an operator configured. M11 introduces the first credential
-that belongs to **somebody else's account** — a Google refresh token, long-lived,
+that belongs to **somebody else's account**: a Google refresh token, long-lived
 usable offline, and capable of reading a person's calendar without them present
 and without anything appearing in their sign-in history.
 
@@ -35,7 +35,7 @@ together cannot both proceed.
 
 Without the first two properties an attacker sends a victim a crafted callback
 URL and *their* Google account becomes the one connected to the victim's
-organization — after which the agent reads the attacker's calendar and, from M12,
+organization, after which the agent reads the attacker's calendar and, from M12
 writes to it. That is login CSRF, it requires no access to our systems, and the
 `state` check is the entire defence.
 
@@ -49,7 +49,7 @@ probe which states exist.
 
 **Tokens are encrypted at the application layer, in their own table.** Fernet
 (AES-128-CBC with an HMAC), applied by `encrypt_secret` before the value reaches
-SQLAlchemy. The separate table is not normalisation — it is what makes least
+SQLAlchemy. The separate table is not normalisation: it is what makes least
 privilege *expressible*: a reporting role or a support tool can be denied
 `oauth_tokens` outright, which is impossible for columns on a table people
 already read.
@@ -79,7 +79,7 @@ the milestone that builds it.
 but no longer working*, and both ways of forcing it are lies: false makes a real
 integration look like it was never set up, true makes the agent keep trying a
 credential that can never succeed. `REVOKED` says "this was real, it is broken,
-reconnecting is the fix" — the only thing a user can act on.
+reconnecting is the fix": the only thing a user can act on.
 
 **Refreshing must keep the existing refresh token.** Google returns none on a
 refresh, so code that writes the grant back wholesale nulls a long-lived
@@ -105,7 +105,7 @@ a deploy rather than an outage. One key is honest today; shipping a rotation pat
 nothing has exercised would not be.
 
 **The offline provider is a real authorization server, not a stub.** It issues
-single-use codes, expires tokens, refreshes them, and can be revoked mid-test —
+single-use codes, expires tokens, refreshes them, and can be revoked mid-test
 because those are the states the service has to handle, and OAuth is the one
 feature here impossible to exercise honestly without a browser and a Google
 account. It is refused in production more firmly than the offline embedder or
@@ -115,7 +115,7 @@ flow and hold an integration backed by tokens Google never issued.
 **A provider outage is 502, not 500.** Found at runtime rather than by a test:
 the events endpoint answered 500 because `OAuthError` had no entry in the central
 mapping. 500 tells a client its request was fine and nothing more; 502 says an
-upstream is down, so retrying may work — and it keeps our bugs and Google's
+upstream is down, so retrying may work, and it keeps our bugs and Google's
 outages apart in the metrics. `OAuthRevokedError` deliberately never reaches that
 mapping; the service converts it to a 404 carrying "reconnect it", because a
 retry can never succeed.
@@ -123,7 +123,7 @@ retry can never succeed.
 **What is verified and what is not.** The tables, the encryption round trip and
 its tamper detection, the `state` checks, the token refresh, the revocation path,
 Google's error classification and the calendar payload translation are all
-exercised — the last two against canned payloads through an injected transport.
+exercised: the last two against canned payloads through an injected transport.
 What is *not* verified is Google itself: whether the real consent screen, the real
 token endpoint and the real calendar API behave as documented. There are no
 credentials in this environment, and no test here pretends otherwise.

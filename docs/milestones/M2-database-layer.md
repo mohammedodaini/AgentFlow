@@ -1,4 +1,4 @@
-# M2 — Database layer
+# M2: Database layer
 
 **Status:** complete (2026-08-12) · **Gate:** `make check` green · **Tests:** 48 passing (was 12)
 
@@ -10,16 +10,16 @@ probe that tells the truth about whether the database is reachable.
 
 | Module | Responsibility |
 |---|---|
-| [`app/core/ids.py`](../../backend/app/core/ids.py) | `uuid7()` — RFC 9562 §5.7 time-ordered primary keys |
+| [`app/core/ids.py`](../../backend/app/core/ids.py) | `uuid7()`: RFC 9562 §5.7 time-ordered primary keys |
 | [`app/models/base.py`](../../backend/app/models/base.py) | `Base`, `NAMING_CONVENTION`, `UUIDPrimaryKeyMixin`, `TimestampMixin` |
-| [`app/models/organization.py`](../../backend/app/models/organization.py) | `organizations` — the tenant |
-| [`app/models/user.py`](../../backend/app/models/user.py) | `users` — login identity only |
-| [`app/models/membership.py`](../../backend/app/models/membership.py) | `memberships` + `Role` — the many-to-many with a payload |
+| [`app/models/organization.py`](../../backend/app/models/organization.py) | `organizations`: the tenant |
+| [`app/models/user.py`](../../backend/app/models/user.py) | `users`: login identity only |
+| [`app/models/membership.py`](../../backend/app/models/membership.py) | `memberships` + `Role`: the many-to-many with a payload |
 | [`app/models/__init__.py`](../../backend/app/models/__init__.py) | model registry, so autogenerate sees every table |
 | [`app/db/session.py`](../../backend/app/db/session.py) | `create_engine()`, `create_session_factory()` |
-| [`app/db/deps.py`](../../backend/app/db/deps.py) | `get_db()` — session per request, unit of work |
+| [`app/db/deps.py`](../../backend/app/db/deps.py) | `get_db()`: session per request, unit of work |
 | [`app/monitoring/health.py`](../../backend/app/monitoring/health.py) | `check_database()`, `check_readiness()` |
-| [`app/api/v1/routes/health.py`](../../backend/app/api/v1/routes/health.py) | `GET /health/ready` — 200 or 503 |
+| [`app/api/v1/routes/health.py`](../../backend/app/api/v1/routes/health.py) | `GET /health/ready`: 200 or 503 |
 | [`alembic/`](../../backend/alembic/) + [`alembic.ini`](../../backend/alembic.ini) | async migrations wired to `Settings` and `Base.metadata` |
 
 Three tables, one enum type, one migration:
@@ -31,13 +31,13 @@ Three tables, one enum type, one migration:
 The cheap version is `users.organization_id`. It caps every person at one
 organization forever, and consultants, agencies and "personal workspace plus
 employer" break that on day one. Retrofitting tenancy afterwards means
-rewriting every query in the application — which is why this is the one thing
+rewriting every query in the application, which is why this is the one thing
 [docs/database.md](../database.md) insists on getting right before anything
 else exists. The join table also gives `role` somewhere to live, and later the
 invite state and seat billing.
 
 **2. The constraint naming convention had to come first.**
-Left alone, Postgres invents names like `organizations_slug_key`, and — worse —
+Left alone, Postgres invents names like `organizations_slug_key`, and, worse
 SQLAlchemy leaves unnamed constraints nameless in metadata, so Alembic cannot
 reliably diff or drop them. `NAMING_CONVENTION` must be set before the first
 table is defined; adding it later is a migration that renames every constraint
@@ -54,7 +54,7 @@ every commit inside them has to be hunted down and removed. Services call
 
 **4. Readiness probes Postgres, and deliberately not Redis.**
 The original plan listed both. Nothing uses Redis until M5, and a readiness
-probe answers "can this instance serve its traffic?" — probing an unused
+probe answers "can this instance serve its traffic?", probing an unused
 dependency means a Redis blip pulls a healthy API out of the load balancer.
 Each probe carries a 2-second timeout, because a hung check is worse than a
 failed one: without it the orchestrator's own probe expires with no answer and
@@ -62,14 +62,14 @@ every diagnosis reads "readiness timed out" instead of "the database is down".
 
 **5. `expire_on_commit=False`.**
 SQLAlchemy's default expires every attribute after a commit, so touching
-`user.email` afterwards triggers a lazy refresh — a hidden database call that,
+`user.email` afterwards triggers a lazy refresh: a hidden database call that
 under asyncio, raises `MissingGreenlet` from wherever you happened to be.
 Turning it off is what lets a route serialise the row it just wrote.
 
 ## Three bugs this milestone caught
 
 **The enum that outlives its table.** Autogenerate wrote a `downgrade()` that
-drops all three tables — and leaves the `membership_role` type behind, because
+drops all three tables, and leaves the `membership_role` type behind, because
 Postgres types outlive the tables that use them. `downgrade` then `upgrade`
 failed with `type "membership_role" already exists`, which is exactly what a
 rollback rehearsal does. The migration now drops the type by hand. Verified:
@@ -137,14 +137,14 @@ No new upgrade operations detected.
 
 48 tests, up from 12:
 
-- **unit (30)** — settings, logging, `uuid7()` bit layout and ordering, schema
+- **unit (30)**: settings, logging, `uuid7()` bit layout and ordering, schema
   metadata (table names, constraint names, the index decision, role values),
   readiness probe behaviour including the hang-and-timeout path.
-- **integration (9)** — against real Postgres: the tenancy graph, server-side
+- **integration (9)**: against real Postgres: the tenancy graph, server-side
   timestamps, duplicate email rejected, one membership per (user, org), a user
   in several orgs, `ON DELETE CASCADE`, the role default, and that the enum is
   stored as `owner` rather than `OWNER`.
-- **e2e (9)** — both health endpoints, including 503 with a named failing
+- **e2e (9)**: both health endpoints, including 503 with a named failing
   dependency, and that liveness stays green while readiness goes red.
 
 Integration tests **skip** rather than fail when Postgres is unreachable, so
@@ -155,7 +155,7 @@ connection errors. CI always has a server, so nothing is quietly lost.
 
 - **Test fixtures are minimal.** `tests/integration/conftest.py` creates tables
   with `create_all` and truncates between tests. Transactional isolation,
-  factories and a coverage gate are M4's job — this is the smallest thing that
+  factories and a coverage gate are M4's job: this is the smallest thing that
   proves M2's schema.
 - **Tests build the schema from models, not migrations.** Fast, and it keeps
   schema bugs separate from migration bugs, but it means a missing migration
@@ -166,7 +166,7 @@ connection errors. CI always has a server, so nothing is quietly lost.
   `Bob@x.com` and `bob@x.com` would be two accounts that both satisfy the
   unique constraint. M3's service layer lowercases on write, which is the
   simpler half of the fix.
-- **Redis is not probed** — M5, with the connection pool.
+- **Redis is not probed**: M5, with the connection pool.
 
 ## Reproduce
 

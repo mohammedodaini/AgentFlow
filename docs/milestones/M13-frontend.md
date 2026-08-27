@@ -1,4 +1,4 @@
-# M13 — The frontend: the first milestone a person can see
+# M13: The frontend: the first milestone a person can see
 
 - **Date:** 2026-08-20
 - **Status:** shipped
@@ -28,7 +28,7 @@ the agent not to put that meeting in their calendar.
 **The browser never holds a JWT** (ADR-0016). The refresh token is a seven-day
 offline credential; in `localStorage` one compromised dependency exfiltrates it
 and the attacker has a week of access from their own machine. In an httpOnly
-cookie the same XSS is bounded to that page while it is open — the difference
+cookie the same XSS is bounded to that page while it is open: the difference
 between an incident and a breach.
 
 Two things follow, and both are load-bearing rather than stylistic. Writes are
@@ -42,14 +42,14 @@ Three, and two of them predate it.
 
 **1. CI has never run on a push.** `.github/workflows/ci.yml` triggers on
 `branches: [main]`; this repository's branch is `master`. From M1 to M13 the
-workflow only ever fired on pull requests, and this project has not opened one —
+workflow only ever fired on pull requests, and this project has not opened one
 so the gate that `make check` enforces locally has never once run in CI. A CI
 file that never runs is worse than no CI file, because it looks like a gate.
 Found by reading the workflow while adding a frontend job to it.
 
 **2. `.env.example` had drifted five milestones behind.** It calls itself "the
 committed contract of every variable the app needs" and was missing 23 of 45
-settings — including `TOKEN_ENCRYPTION_KEY` and `OAUTH_PROVIDER`, the two whose
+settings, including `TOKEN_ENCRYPTION_KEY` and `OAUTH_PROVIDER`, the two whose
 absence stops a production deploy. It also documented `GOOGLE_REDIRECT_URI`,
 which no setting reads: somebody would have set it, watched it be ignored, and
 had no way to discover the real name is `OAUTH_REDIRECT_BASE_URL`. Fixed in the
@@ -81,7 +81,7 @@ worker and real Postgres. Thirteen checks, all passing:
 ✓ signed out cannot reach /chat
 ```
 
-Three of those are security assertions that would regress *silently* — the page
+Three of those are security assertions that would regress *silently*: the page
 would look identical either way. The answer the browser actually received was
 *"Expenses are reimbursed monthly, provided a receipt is attached. [1]"*, cited,
 from a document uploaded through the UI moments earlier.
@@ -90,17 +90,17 @@ from a document uploaded through the UI moments earlier.
 
 ```
 frontend: pnpm lint · pnpm typecheck · pnpm build   (9 routes)
-backend:  unchanged — 713 tests, 97.14%
+backend:  unchanged, 713 tests, 97.14%
 smoke:    13/13 in a real browser
 ```
 
-CI now has a `frontend` job, and — for the first time — actually runs on push.
+CI now has a `frontend` job, and, for the first time, actually runs on push.
 
 ## Known gaps, deliberately left
 
 **No frontend unit tests.** The smoke test covers the paths that matter and the
 components are thin: four primitives and five forms, none holding logic worth
-isolating. When a component grows a branch worth testing, add the runner then —
+isolating. When a component grows a branch worth testing, add the runner then
 adding Vitest now would be a test harness with nothing to test.
 
 **No streaming.** `POST /ask/stream` exists (M7) and the chat UI does not use it;
@@ -114,7 +114,7 @@ stored. Everything is tenant-scoped underneath, so this is a UI affordance rathe
 than a missing capability.
 
 **No optimistic UI.** Sending a message waits for the round trip. `useOptimistic`
-would make it feel faster and would need a rollback path for the failure cases —
+would make it feel faster and would need a rollback path for the failure cases
 worth doing when somebody complains, not before.
 
 **Accessibility is basic, not audited.** Labels are associated, errors use
@@ -125,11 +125,11 @@ through it, and the milestone does not claim they have.
 
 ```bash
 make up                       # Postgres + Redis
-make dev                      # API      — terminal 1
-make worker                   # arq      — terminal 2
+make dev                      # API, terminal 1
+make worker                   # arq, terminal 2
 cd frontend && pnpm install && cp .env.local.example .env.local
-pnpm dev                      # frontend — terminal 3
+pnpm dev                      # frontend, terminal 3
 ```
 
-Then http://localhost:3000 — register, upload a document, wait for `ready`, and
+Then http://localhost:3000, register, upload a document, wait for `ready`, and
 ask it something.

@@ -17,8 +17,8 @@ it, every HTTP client library assumes it, and it takes one line.
 ## Decision
 
 **The tokens are stored in httpOnly cookies set by the Next server, and the
-browser never sees them.** `src/lib/api.ts` — the only code that attaches a
-credential — imports `server-only`, so importing it from a Client Component is a
+browser never sees them.** `src/lib/api.ts`: the only code that attaches a
+credential, imports `server-only`, so importing it from a Client Component is a
 build error rather than a silent security regression.
 
 Every write goes through a **Server Action**. Every read happens in a Server
@@ -35,7 +35,7 @@ tag, one `dangerouslySetInnerHTML` over user content, and `localStorage.getItem`
 plus a `fetch` exfiltrates it. The attacker then has a week of access from their
 own machine, and nothing in our logs distinguishes them from the user.
 
-With httpOnly cookies the same XSS is still bad — the attacker can act as the
+With httpOnly cookies the same XSS is still bad: the attacker can act as the
 user *on that page, while it is open*. It is bounded to the session and the
 device. That is the difference between an incident and a breach.
 
@@ -52,7 +52,7 @@ preflight requests. A whole category of configuration and a whole category of
 bug simply do not exist here.
 
 **The password never enters a client bundle.** Server Actions post the form
-directly to the server, so no browser code has ever held it — and the login page
+directly to the server, so no browser code has ever held it, and the login page
 works with JavaScript disabled, which is a pleasant accident rather than a goal.
 
 **`revalidatePath` becomes available**, and it is what keeps the UI correct after
@@ -61,7 +61,7 @@ inbox. The client-`fetch` alternative needs client state that can disagree with
 the server, which is where "I approved it but it's still showing" comes from.
 
 **`sameSite=lax`, not `strict`.** Strict would drop the session cookie on the
-OAuth callback — Google redirects the browser to us, a cross-site navigation —
+OAuth callback: Google redirects the browser to us, a cross-site navigation
 and the user would land back apparently signed out having just connected their
 calendar. `lax` sends cookies on top-level GET navigations, which is that case,
 and withholds them on the cross-site POST that CSRF actually needs.
@@ -71,7 +71,7 @@ The browser discards a cookie while its token is still valid, rather than
 presenting a dead credential and getting a 401 the user has to interpret.
 
 **Refresh is retried exactly once.** An access token expires mid-session by
-design. `apiFetch` refreshes and retries a 401 once — not in a loop, because if
+design. `apiFetch` refreshes and retries a 401 once: not in a loop, because if
 the refreshed token is also rejected the credential is genuinely dead, and
 retrying turns one bad session into a request storm against `/auth/refresh`. On
 failure the cookies are cleared, so the next request does not repeat the dance.

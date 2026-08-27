@@ -78,4 +78,4 @@ record.
    needs a Redis denylist, which we implement in the auth milestone.
 5. **REST, not GraphQL.** Our access patterns are simple and known; REST +
    OpenAPI gives free typed clients and docs. GraphQL pays off when many
-   clients need flexible queries — we don't have that problem.
+   clients need flexible queries: we don't have that problem.

@@ -1,4 +1,4 @@
-# M3 — Authentication and org scoping
+# M3: Authentication and org scoping
 
 **Status:** complete (2026-08-12) · **Gate:** `make check` green · **Tests:** 115 passing (was 48)
 
@@ -10,16 +10,16 @@ every feature is built behind this boundary.
 
 | Module | Responsibility |
 |---|---|
-| [`app/core/security.py`](../../backend/app/core/security.py) | Argon2id hashing, JWT mint/verify — pure functions, no I/O |
+| [`app/core/security.py`](../../backend/app/core/security.py) | Argon2id hashing, JWT mint/verify: pure functions, no I/O |
 | [`app/core/exceptions.py`](../../backend/app/core/exceptions.py) | `NotFound`/`Authentication`/`Authorization`/`Conflict`/`DuplicateEmail` |
 | [`app/api/errors.py`](../../backend/app/api/errors.py) | Domain errors → HTTP status + one error body shape |
-| [`app/db/redis.py`](../../backend/app/db/redis.py) | Redis client lifecycle (arrived early — see below) |
-| [`app/auth/tokens.py`](../../backend/app/auth/tokens.py) | `TokenService` — issue, rotate, revoke, replay detection |
-| [`app/auth/service.py`](../../backend/app/auth/service.py) | `AuthService` — register, login, refresh, logout |
+| [`app/db/redis.py`](../../backend/app/db/redis.py) | Redis client lifecycle (arrived early: see below) |
+| [`app/auth/tokens.py`](../../backend/app/auth/tokens.py) | `TokenService`: issue, rotate, revoke, replay detection |
+| [`app/auth/service.py`](../../backend/app/auth/service.py) | `AuthService`: register, login, refresh, logout |
 | [`app/auth/dependencies.py`](../../backend/app/auth/dependencies.py) | `CurrentUser`, `CurrentMembership`, `require_role` |
 | [`app/services/user_service.py`](../../backend/app/services/user_service.py) | Profile read/update |
 | [`app/services/organization_service.py`](../../backend/app/services/organization_service.py) | Org creation, roster, invite, role change, removal + every role rule |
-| [`app/schemas/`](../../backend/app/schemas/) | `common`, `auth`, `user`, `organization` — the API boundary |
+| [`app/schemas/`](../../backend/app/schemas/) | `common`, `auth`, `user`, `organization`: the API boundary |
 | [`app/api/v1/routes/`](../../backend/app/api/v1/routes/) | `auth`, `users`, `organizations` |
 
 Twelve new endpoints:
@@ -47,13 +47,13 @@ Full reasoning, including what this design *cannot* promise, in
 [ADR-0004](../adr/0004-stateless-access-tokens-with-rotating-refresh-tokens.md).
 
 **2. The tenant travels in a header.** `X-Organization-Id`, resolved into a
-`Membership` by one dependency. Required, never defaulted — see
+`Membership` by one dependency. Required, never defaulted, see
 [ADR-0005](../adr/0005-organization-scope-travels-in-a-header.md).
 
 **3. Dependencies, not middleware.** Middleware needs a list of paths to skip,
 which is a denylist, and a denylist of unprotected routes fails *open*: add a
 route, forget the list, and it is public with nothing to notice. A dependency
-fails closed — a route without `CurrentUser` in its signature is visibly
+fails closed: a route without `CurrentUser` in its signature is visibly
 unprotected, right there in the function definition.
 
 **4. Role rules live in the service, not the route.** `require_role(...)`
@@ -64,13 +64,13 @@ transport layer does not exist for two thirds of the callers.
 
 **5. Nothing about authorization goes in the token.** No email, no role, no
 organization. A claim is a snapshot that keeps being true to whoever reads it
-long after it stopped being true — demote an admin and their existing token
+long after it stopped being true, demote an admin and their existing token
 would still say "admin" until it expired. The database is consulted per
 request, which is also why deactivating a user takes effect immediately.
 
 **6. Redis moved from M5 to M3.** `/auth/logout` has to revoke something; an
 endpoint that returns 204 and leaves the token working is worse than no logout
-at all. The M2 rule — *probe what you actually use* — then applied itself, so
+at all. The M2 rule, *probe what you actually use*, then applied itself, so
 `/health/ready` gained a Redis check in the same breath.
 
 ## The OWASP defences, and the tests that hold them
@@ -81,7 +81,7 @@ Each of these closes a specific attack, not a general good practice:
 |---|---|---|
 | Argon2id, per-hash salt | Offline cracking; identical hashes revealing shared passwords | `test_the_same_password_hashes_differently_every_time` |
 | Identical error for bad password / unknown email | Account enumeration | `test_wrong_password_and_unknown_email_are_indistinguishable` |
-| Dummy hash verified when no user exists | Enumeration by *timing* — the same oracle, rebuilt | `_TIMING_EQUALISER_HASH` in `auth/service.py` |
+| Dummy hash verified when no user exists | Enumeration by *timing*: the same oracle, rebuilt | `_TIMING_EQUALISER_HASH` in `auth/service.py` |
 | `algorithms=[...]` whitelist | `alg: none`, RS256→HS256 confusion | `test_an_unsigned_token_is_rejected` |
 | `typ` claim checked on decode | Using a 7-day refresh token as an access token | `test_a_refresh_token_cannot_open_a_protected_route` |
 | Refresh rotation | A stolen refresh token working for 7 days undetected | `test_a_rotated_refresh_token_stops_working` |
@@ -97,12 +97,12 @@ Each of these closes a specific attack, not a general good practice:
 **The placeholder secret was 9 bytes.** PyJWT warned on every token: RFC 7518
 §3.2 wants at least 32 for HS256. The validator had been checking only for the
 *exact* placeholder string, so any short custom key would have sailed through.
-Both fixed — length is now checked too, and the placeholder was lengthened so
+Both fixed: length is now checked too, and the placeholder was lengthened so
 local runs are quiet.
 
 **FastAPI refused to start.** `get_current_membership` named its header
 parameter `organization_id`, and any route declaring `/{organization_id}/...`
-raised `Cannot use Header for path param` at import time — FastAPI matches a
+raised `Cannot use Header for path param` at import time, FastAPI matches a
 dependency's parameters against the path template *by name*. Renamed to
 `header_organization_id`; the alias clients send is unchanged.
 
@@ -137,15 +137,15 @@ $ curl -s -X POST .../auth/refresh -d "{\"refresh_token\":\"$OLD\"}"   # replaye
 ```
 
 No `password_hash` in the profile response, and a registered user already owns
-an organization — the two properties this milestone exists to guarantee.
+an organization: the two properties this milestone exists to guarantee.
 
 ## Test coverage
 
 115 tests, up from 48:
 
-- **unit (+20)** — Argon2 behaviour, JWT claim set, tampering, `alg: none`,
+- **unit (+20)**: Argon2 behaviour, JWT claim set, tampering, `alg: none`
   both directions of type confusion, the startup secret guards.
-- **e2e (+45)** — the full auth surface and the full org-scoping surface,
+- **e2e (+45)**: the full auth surface and the full org-scoping surface
   including every privilege-escalation case in the table above.
 - Redis probe tests join the readiness suite.
 
@@ -158,7 +158,7 @@ an organization — the two properties this milestone exists to guarantee.
   who already have accounts.
 - **No password reset.** Needs the same mail path.
 - **Replay revokes one token, not the family.** The OAuth BCP's stronger
-  response needs per-user token tracking — see the notes in ADR-0004.
+  response needs per-user token tracking, see the notes in ADR-0004.
 - **Audit `events` rows are TODOs.** Every mutating service method is marked;
   the table lands in M16.
 - **`updated_at` on role changes** is ORM-only, inherited from M2.

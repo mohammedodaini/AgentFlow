@@ -8,7 +8,7 @@
 
 [docs/database.md](../database.md) settled the schema question: almost every
 table hangs off `organizations`, and a user reaches one through `memberships`.
-What M3 had to settle is the *transport* question — how a request says which
+What M3 had to settle is the *transport* question, how a request says which
 organization it is acting in.
 
 This is not a small choice. Every query in every later milestone filters by
@@ -24,14 +24,14 @@ boundary of the entire product. Two properties matter:
 ## Decision
 
 An `X-Organization-Id` header, resolved once by `get_current_membership` in
-`app/auth/dependencies.py`, which returns the caller's `Membership` — carrying
+`app/auth/dependencies.py`, which returns the caller's `Membership`, carrying
 both the organization id and the caller's role in it.
 
 The header is **required** on scoped endpoints: FastAPI's own validation
 returns 422 when it is missing. There is no default organization.
 
-Where a route also carries an organization id in its path —
-`/organizations/{id}/members` — the two must agree, or the request is refused
+Where a route also carries an organization id in its path
+`/organizations/{id}/members`: the two must agree, or the request is refused
 with 404.
 
 Exactly two authenticated endpoints are unscoped, and both by necessity:
@@ -43,7 +43,7 @@ cannot scope a request to an organization you have not chosen or created yet).
 **Good.** Property 1 is satisfied by construction: `CurrentMembership` in a
 route signature *is* the tenancy check, and a route that omits it is visibly
 unscoped in its own definition and in the OpenAPI schema. Property 2 costs the
-client one header, and no URL changes when a user switches workspace — which
+client one header, and no URL changes when a user switches workspace, which
 also means bookmarks and deep links survive.
 
 Because the id is resolved into a `Membership`, the role arrives with it. Every
@@ -54,7 +54,7 @@ would confirm the organization exists, which turns any scoped endpoint into an
 oracle for enumerating tenant ids.
 
 **Bad.** A header is easier to forget than a path segment, and it is invisible
-in a URL — you cannot paste an org-scoped link to a colleague and have it just
+in a URL: you cannot paste an org-scoped link to a colleague and have it just
 work. Requiring the header rather than defaulting converts that from a silent
 correctness bug into a loud 422, but the ergonomic cost is real and it lands on
 every client author.
@@ -62,7 +62,7 @@ every client author.
 **Also bad.** Two sources for one value now exist on nested routes, and they
 have to be reconciled by hand in each. `_require_same_organization` in
 `app/api/v1/routes/organizations.py` does that today; a future route that
-forgets it would authorize against the header and act on the path — the exact
+forgets it would authorize against the header and act on the path: the exact
 confused-deputy bug this ADR exists to prevent. That is a wart, and the
 mitigation is that scoped *collections* should not repeat the org id in their
 paths at all: `/documents`, not `/organizations/{id}/documents`.
@@ -70,7 +70,7 @@ paths at all: `/documents`, not `/organizations/{id}/documents`.
 ## Alternatives rejected
 
 **A path prefix: `/organizations/{organization_id}/documents/...`.** Explicit,
-linkable, and impossible to omit — genuinely the strongest option on property
+linkable, and impossible to omit, genuinely the strongest option on property
 1. Rejected because it puts the tenant in every URL of the product, so every
 link breaks when a user switches workspace and every client builds every path
 by string concatenation. Worth revisiting if the header's ergonomics prove

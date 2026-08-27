@@ -31,7 +31,7 @@ graph with the state read back out.
 
 **Two graphs over shared node functions, not one graph with a checkpointer.** Once
 the state is in a row, a LangGraph checkpointer would be a second store of the same
-fact — two things to keep consistent, plus a dependency on
+fact, two things to keep consistent, plus a dependency on
 `langgraph-checkpoint-postgres` to hold the copy that matters less.
 
 Stated plainly, because the roadmap says "LangGraph interrupts": this is **not**
@@ -41,7 +41,7 @@ remembers, which is the property the roadmap actually asks for.
 **The requested action is stored whole, and it is what executes.** Not a plan id,
 not a tool name plus arguments to be re-derived. The dict written to
 `approvals.requested_action` is the dict shown to the human and the dict handed to
-the executor — the same object all three times, so "what was approved" and "what
+the executor: the same object all three times, so "what was approved" and "what
 ran" are identical by construction rather than by care.
 
 **The summary a human reads is rendered from that action by code.** A model-written
@@ -50,7 +50,7 @@ approve reads the sentence, not the JSON.
 
 **Proposing and executing are different functions, and only one is reachable
 freely.** `parse_event_request` touches nothing. `build_create_event` is constructed
-only on the resume path. The alternative — one tool with `if approved:` inside — puts
+only on the resume path. The alternative, one tool with `if approved:` inside, puts
 the decision and the effect in the same function, where a refactor or a second caller
 can separate them.
 
@@ -76,7 +76,7 @@ and be genuinely resumable by anyone who found it.
 appear in reports, get trusted, and be wrong". M12 owns pricing and keeps that:
 `app/llm/pricing.py` ships the arithmetic and `Settings` holds the rates, defaulting
 to zero. A `cost_usd` of `0.000000` now means "nobody has told this system what it
-pays" rather than "not built yet" — and the docstrings say so.
+pays" rather than "not built yet", and the docstrings say so.
 
 **The calendar scope widened, and existing users must reconnect.** M11 requested
 `calendar.readonly` precisely so a write scope would not sit unused for a milestone.
@@ -91,7 +91,7 @@ steps with `enumerate`, which is right for one invocation and collides on
 test. The assumption was invisible until a run had two halves.
 
 **Assigning `None` to a JSONB column writes JSON `null`, not SQL NULL.** Found by
-looking at Postgres, not through the ORM — SQLAlchemy reads both back as `None`, so
+looking at Postgres, not through the ORM, SQLAlchemy reads both back as `None`, so
 every ORM assertion passed while `checkpoint IS NULL` was false. NULL is what
 "nothing to resume" *means*, so an operator sweeping for stuck runs with `WHERE
 checkpoint IS NOT NULL` would have found every cancelled run in the system. Fixed
@@ -100,15 +100,15 @@ cannot see the difference.
 
 **The email half of the milestone is not built, and that is stated rather than
 implied.** `docs/roadmap.md` pairs "Calendar write" with "Email draft/send behind
-approval". There is no Gmail integration to draft into — building one is M14's OAuth
-work — so `app/agents/email/` remains a stub. The approval machinery is
+approval". There is no Gmail integration to draft into, building one is M14's OAuth
+work, so `app/agents/email/` remains a stub. The approval machinery is
 provider-agnostic; adding the second action kind is a `requested_action["kind"]` and
 an executor.
 
 **What is verified and what is not.** The rows, the pause, the resume across a
 genuinely restarted process, the idempotency, the expiry, the cancellation, the
 pricing arithmetic and the tenancy are all exercised. What is *not* verified is
-whether a model asks for approval at sensible moments — the offline provider does not
+whether a model asks for approval at sensible moments: the offline provider does not
 choose tools at all (ADR-0012), and the parser here is deterministic. The gate is in
 code rather than in the model's judgement, which is the only arrangement that would
 be safe even if that judgement were being tested.

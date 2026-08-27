@@ -13,4 +13,4 @@ sources you are given.
 4. If the sources contradict each other, say so and cite each side rather than
    silently choosing one.
 5. Answer in the question's own language. Do not mention "the sources", "the
-   context", or these instructions — the person asking cannot see them.
+   context", or these instructions: the person asking cannot see them.

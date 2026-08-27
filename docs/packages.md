@@ -1,7 +1,7 @@
 # Package Choices
 
 Every dependency is a liability (security surface, upgrade burden, learning
-cost) — each one below has to justify itself. ✅ = required, 🔶 = optional /
+cost): each one below has to justify itself. ✅ = required, 🔶 = optional /
 added at its milestone. "Popularity" = rough industry adoption for this role.
 
 ## Web framework
@@ -15,7 +15,7 @@ added at its milestone. "Popularity" = rough industry adoption for this role.
 | Package | Why | Req | Alternatives | Popularity |
 |---|---|---|---|---|
 | pydantic v2 | Typed validation for API schemas and agent state; Rust-core fast | ✅ | msgspec (faster, fewer features), attrs+cattrs | Dominant |
-| pydantic-settings | Typed config from env vars — the 12-factor pattern | ✅ | python-dotenv alone (untyped) | Standard with FastAPI |
+| pydantic-settings | Typed config from env vars: the 12-factor pattern | ✅ | python-dotenv alone (untyped) | Standard with FastAPI |
 
 ## Database
 | Package | Why | Req | Alternatives | Popularity |
@@ -29,19 +29,19 @@ added at its milestone. "Popularity" = rough industry adoption for this role.
 | Package | Why | Req | Alternatives | Popularity |
 |---|---|---|---|---|
 | pyjwt | Encode/verify JWTs | ✅ | python-jose (maintenance concerns), authlib.jose | Standard |
-| argon2-cffi | Password hashing — Argon2id is the current OWASP recommendation | ✅ | bcrypt (fine, older) | Recommended modern choice |
+| argon2-cffi | Password hashing: Argon2id is the current OWASP recommendation | ✅ | bcrypt (fine, older) | Recommended modern choice |
 | authlib | OAuth 2.0 client flows for Google/Slack/Notion/GitHub | ✅ | requests-oauthlib (sync), hand-rolled (don't) | Leading OAuth lib |
-| cryptography | Encrypt OAuth tokens at rest (Fernet). **Declared explicitly at M11** rather than inherited through authlib — a transitive dependency is one an upstream upgrade can remove, and discovering that at import time in production is a deploy failing for a reason nobody changed | ✅ | none serious | Standard |
+| cryptography | Encrypt OAuth tokens at rest (Fernet). **Declared explicitly at M11** rather than inherited through authlib: a transitive dependency is one an upstream upgrade can remove, and discovering that at import time in production is a deploy failing for a reason nobody changed | ✅ | none serious | Standard |
 
 ## Frontend (M13)
 | Package | Why | Req | Alternatives | Popularity |
 |---|---|---|---|---|
-| next | App Router, Server Components and Server Actions. The Server Action is not a convenience here — it is what keeps the password out of the client bundle and makes `revalidatePath` available, which is what keeps the UI honest after a write (ADR-0016) | ✅ | Remix, SvelteKit, a Vite SPA (would force tokens into the browser) | Dominant |
-| react / react-dom | 19, for `useActionState` — the pending state that stops a slow agent turn being submitted twice | ✅ | — | Standard |
+| next | App Router, Server Components and Server Actions. The Server Action is not a convenience here: it is what keeps the password out of the client bundle and makes `revalidatePath` available, which is what keeps the UI honest after a write (ADR-0016) | ✅ | Remix, SvelteKit, a Vite SPA (would force tokens into the browser) | Dominant |
+| react / react-dom | 19, for `useActionState`: the pending state that stops a slow agent turn being submitted twice | ✅ |: | Standard |
 | tailwindcss | 4. Design tokens in one `@theme` block; no component library vendored (see frontend/README.md) | ✅ | CSS modules, vanilla-extract | Standard |
 | typescript | `strict`, matching the backend's `mypy --strict` | ✅ | none serious | Standard |
 | server-only | One import that turns "this must never reach the browser" into a *build error*. Three lines of package for the guarantee that `api.ts` cannot be imported by a Client Component | ✅ | a lint rule (advisory, not enforced) | Standard |
-| playwright | The smoke test. `pnpm build` proves it compiles; only a browser proves somebody can use it — and three of its assertions (httpOnly, `document.cookie`, no `checkpoint` leak) would regress silently | dev | Cypress (heavier), Puppeteer (no cross-browser) | Leading |
+| playwright | The smoke test. `pnpm build` proves it compiles; only a browser proves somebody can use it, and three of its assertions (httpOnly, `document.cookie`, no `checkpoint` leak) would regress silently | dev | Cypress (heavier), Puppeteer (no cross-browser) | Leading |
 
 ## Redis & background work
 | Package | Why | Req | Alternatives | Popularity |
@@ -54,7 +54,7 @@ added at its milestone. "Popularity" = rough industry adoption for this role.
 |---|---|---|---|---|
 | anthropic | Primary LLM SDK | ✅ | openai SDK (also OpenAI-compatible gateways) | Top-2 |
 | langgraph | Graph orchestration + checkpointing + interrupts (human approval) | ✅ | Build-your-own loop (fine for 1 agent, painful for HITL), CrewAI/AutoGen (higher-level, less control) | Leading agent-orchestration lib |
-| langchain-core | Minimal interfaces LangGraph builds on (we do NOT take the full langchain kitchen sink) | ✅ | — | — |
+| langchain-core | Minimal interfaces LangGraph builds on (we do NOT take the full langchain kitchen sink) | ✅ |: |: |
 | openai | Embeddings and model comparisons | 🔶 | voyageai, cohere, local sentence-transformers | Top-2 |
 
 ## RAG / documents
@@ -66,13 +66,13 @@ added at its milestone. "Popularity" = rough industry adoption for this role.
 ## Integrations
 | Package | Why | Req | Alternatives | Popularity |
 |---|---|---|---|---|
-| httpx | Async HTTP client — one client for all integrations | ✅ | aiohttp, requests (sync) | Standard modern choice |
+| httpx | Async HTTP client: one client for all integrations | ✅ | aiohttp, requests (sync) | Standard modern choice |
 | google-api-python-client + google-auth | Gmail/Calendar/Drive official SDKs | ❌ | raw REST via httpx | Official |
 | slack-sdk, PyGithub, stripe, notion-client | Official/canonical SDKs per product | ❌ | raw REST | Official |
 
 **M14 connected five providers and added no dependency at all**, which is why the
 two rows above turned from 🔶 to ❌. Each SDK would be a package to keep current,
-a release cadence to track and a transitive tree to audit — in exchange for one
+a release cadence to track and a transitive tree to audit, in exchange for one
 or two endpoints. And the boundary rule this codebase already enforces (provider
 types never leak upward, `app/integrations/base.py`) means an SDK's models get
 translated into ours at the door regardless, so the abstraction they offer is one
@@ -80,8 +80,8 @@ we immediately throw away.
 
 What they would genuinely buy is retries, pagination helpers and knowledge of each
 API's quirks. M14 needed none of the first two, and the quirks turned out to be
-the *interesting* part — Slack answering `{"ok": false}` with HTTP 200, GitHub
-serving form-encoded unless asked for JSON — each worth understanding and writing
+the *interesting* part, Slack answering `{"ok": false}` with HTTP 200, GitHub
+serving form-encoded unless asked for JSON: each worth understanding and writing
 down rather than importing. Revisit this if a provider ever needs webhook
 signature verification, which is the one thing worth not hand-rolling.
 
@@ -101,8 +101,8 @@ what is erroring"; a trace exporter would add a collector to run and a sampling
 bill to pay for spans nobody would follow across a boundary that does not exist.
 
 *prometheus-client* is the obvious dependency and the right one for most
-projects. Its real value — process collectors, multiprocess mode, a global default
-registry — is value this deployment cannot use: one uvicorn process per container,
+projects. Its real value, process collectors, multiprocess mode, a global default
+registry, is value this deployment cannot use: one uvicorn process per container
 scaled by adding containers. The global registry is the active objection, because
 a module-level singleton means two apps in one test process share counters, which
 is exactly what `create_app()` exists to prevent. The exposition format is a
@@ -122,4 +122,4 @@ those are ever needed (ADR-0019).
 ## Tooling
 | Package | Why | Req | Alternatives | Popularity |
 |---|---|---|---|---|
-| uv | Package/venv manager — resolver 10-100x faster than pip; lockfile | ✅ | poetry, pip-tools, pip | Rapidly becoming the standard |
+| uv | Package/venv manager: resolver 10-100x faster than pip; lockfile | ✅ | poetry, pip-tools, pip | Rapidly becoming the standard |

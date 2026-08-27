@@ -1,7 +1,7 @@
-# M16 — Production: the milestone where running it found the bugs
+# M16: Production: the milestone where running it found the bugs
 
 - **Date:** 2026-08-21
-- **Status:** shipped — **the last milestone on the roadmap**
+- **Status:** shipped, **the last milestone on the roadmap**
 - **ADRs:** [ADR-0019](../adr/0019-production-choices-fail-open-fail-loud-and-append-only.md)
 
 Deploy, monitoring, Sentry, rate limiting, a security hardening pass, a load
@@ -35,8 +35,8 @@ hand-rolled because the library's value is value this deployment cannot use.
 **This migration was the first since M2 with no enum to hand-drop.** Six
 milestones running shipped a native Postgres enum whose *type* survives
 `DROP TABLE`, and autogenerate never once wrote the `DROP TYPE`. `event_type` is a
-plain `String(64)` — an audit vocabulary grows with every feature, which is the
-wrong shape for a native enum — so the generated downgrade is complete as written.
+plain `String(64)`: an audit vocabulary grows with every feature, which is the
+wrong shape for a native enum, so the generated downgrade is complete as written.
 Rehearsed both ways.
 
 ## Bugs this milestone found
@@ -53,7 +53,7 @@ deployed.
 
 **2. The production image never used the lockfile.** The Dockerfile copied
 `pyproject.toml` alone and ran `uv sync`, re-resolving from scratch on every
-build — and this project's specifiers have no upper bounds. That is not
+build, and this project's specifiers have no upper bounds. That is not
 theoretical: `uv lock` silently moved mypy from 1.x to 2.3 during M6. Two builds
 of the same commit, a week apart, could ship different major versions of
 `anthropic` or `sqlalchemy`, which is a release that cannot be reproduced and a
@@ -62,7 +62,7 @@ bug that cannot be bisected. Now `COPY pyproject.toml uv.lock` and
 
 **3. `Server: uvicorn` was still being sent.** `SecurityHeadersMiddleware` sets
 `Server: agentflow`, and uvicorn writes its own at the protocol layer *after* the
-application response — so both went out and the banner the middleware existed to
+application response, so both went out and the banner the middleware existed to
 suppress was still there. Middleware cannot remove it; `--no-server-header` can.
 Found with `curl -I` against the container.
 
@@ -73,21 +73,21 @@ the same `pgdata` volume. It surfaced as `InvalidPasswordError`, because the
 volume was initialised with the development password and `POSTGRES_PASSWORD` is
 ignored on an existing data directory.
 
-**The failure was loud. The success would not have been** — with a matching
+**The failure was loud. The success would not have been**: with a matching
 password the production stack would have started, migrated, and served traffic out
 of a developer's database. Fixed with `name: agentflow-prod`.
 
 **5. The frontend container crash-looped on `MODULE_NOT_FOUND`.** pnpm's default
 layout is a content-addressed store plus symlinks, and Next's
-`output: "standalone"` traces the files it needs and *copies* them — so the copy
+`output: "standalone"` traces the files it needs and *copies* them, so the copy
 landed full of links to paths that were never copied. The build succeeded and the
 container died on `@swc/helpers` from inside next's own require hook. Fixed with
 `--config.node-linker=hoisted` in the image only, so local development keeps the
 fast layout.
 
 **6. The histogram double-counted, and a test caught that one.**
-`Histogram.observe` incremented every bucket the value fell under — already
-cumulative — and `render` accumulated a second time. With observations at 5ms,
+`Histogram.observe` incremented every bucket the value fell under, already
+cumulative, and `render` accumulated a second time. With observations at 5ms
 30ms, 200ms and 3s, the `le="0.05"` bucket reported 3 instead of 2. Nothing
 raises: the histogram renders, the dashboard draws, and every quantile is wrong in
 the direction that makes the service look slower than it is. That is the kind of
@@ -95,14 +95,14 @@ monitoring bug that gets a real regression dismissed as "the metrics are always
 weird".
 
 **7. Agent spend was counted and never emitted.** `observe_agent_run` was written
-and unit-tested while nothing called it — a dashboard panel that never fills,
+and unit-tested while nothing called it: a dashboard panel that never fills
 where a reader cannot tell "no agent ran" from "this is not measured". It is the
 same mistake this milestone's own `EventType` docstring argues against, made two
 files away. Every terminal state now goes through one `AgentService.finish`, so a
 sixth call site cannot forget the counter.
 
 **And one thing that was not a bug but was worse than one.** `events.ip_address`
-recorded `172.19.0.6` for every sign-in — the *web container's* address, because
+recorded `172.19.0.6` for every sign-in: the *web container's* address, because
 the browser never talks to the API (ADR-0016). A column holding one constant value
 looks like data and is useless for the thing it exists for, which is noticing
 eighty failed sign-ins from one address in a minute. The frontend now forwards
@@ -112,7 +112,7 @@ better without one.
 ## The load test measured the rate limiter, and said so
 
 Its first run against the container stack refused **341 of 400** requests and
-reported the agent scenario at `1335.6 rps, p50 4.6ms` — 48 rate-limit responses
+reported the agent scenario at `1335.6 rps, p50 4.6ms`, 48 rate-limit responses
 served very quickly, and the best-looking row in the table.
 
 The tool now warns above a refusal threshold, because a number that flatters the
@@ -130,7 +130,7 @@ one container on this laptop, 16 concurrent clients:
 
 `list runs` went from a fake 370 rps to a real 183. The client shared a machine
 with the server, so these are a lower bound on latency and an upper bound on
-throughput — which is the honest way round.
+throughput, which is the honest way round.
 
 ## Verified at runtime
 
@@ -148,7 +148,7 @@ make smoke against :3001                             23/23
 
 And production's guards, verified **in a container** rather than in a unit test:
 starting the stack without an embedding key stopped the deploy with
-`EMBEDDING_PROVIDER is 'openai' but OPENAI_API_KEY is empty` — the M6 guard doing
+`EMBEDDING_PROVIDER is 'openai' but OPENAI_API_KEY is empty`: the M6 guard doing
 its job in the deploy path.
 
 The audit trail after that browser session, read straight from Postgres:
@@ -174,13 +174,13 @@ make eval: handbook unchanged · routing 1.000 vs 0.300 control
 frontend: lint · typecheck · build · smoke 23/23 against the container stack
 ```
 
-One dependency added: `sentry-sdk[fastapi]`, optional at runtime — no DSN, no init.
+One dependency added: `sentry-sdk[fastapi]`, optional at runtime: no DSN, no init.
 
 ## Known gaps, deliberately left
 
 **This is a single-host deploy.** One replica of each service, no TLS
 termination, no managed database, no backups, no log shipping, no secret manager.
-`docker-compose.prod.yml` is a definition of the services and how they fit —
+`docker-compose.prod.yml` is a definition of the services and how they fit
 suitable for one machine, and the source a Kubernetes manifest or an ECS task
 would be written from. Every one of those gaps is a real deployment's problem and
 none is a code change.

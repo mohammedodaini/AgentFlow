@@ -12,7 +12,7 @@ start from a clean state?
 Getting it wrong produces the two worst failure modes a suite can have. Tests
 that pass alone and fail together, which people "fix" by re-running until
 green. And tests that pass in the order they were written and fail when a new
-one is inserted above them — at which point the suite stops being evidence and
+one is inserted above them, at which point the suite stops being evidence and
 becomes a ritual.
 
 M2 and M3 used `TRUNCATE ... CASCADE` after each test. It worked, and it had
@@ -31,8 +31,8 @@ Three pieces make it work:
 
 **The session joins the test's transaction.** `AsyncSession` is bound to the
 already-open connection with `join_transaction_mode="create_savepoint"`, so
-application code that calls `commit()` — as it should, because that is what it
-does in production — releases a SAVEPOINT rather than committing for real. The
+application code that calls `commit()`, as it should, because that is what it
+does in production, releases a SAVEPOINT rather than committing for real. The
 outer transaction stays open and undoes everything.
 
 **HTTP requests join it too.** The `app` fixture overrides the `get_db`
@@ -41,7 +41,7 @@ the application open its own connections and commit for real, leaving rows the
 rollback never sees.
 
 **The schema is built once per session.** A synchronous, session-scoped fixture
-runs `create_all` via `asyncio.run` before any test's event loop exists — which
+runs `create_all` via `asyncio.run` before any test's event loop exists, which
 also sidesteps the question of which loop a session-scoped async fixture
 belongs to.
 
@@ -51,7 +51,7 @@ suite uses database 1 while development uses 0.
 ## Consequences
 
 **Good.** Isolation is total and needs no cleanup code, so a test that fails
-halfway through leaves nothing behind — the case truncation handled worst.
+halfway through leaves nothing behind: the case truncation handled worst.
 Order-independence is structural rather than a property somebody has to
 maintain. The suite got faster while gaining 41 tests: 13.5s to under 10s, and
 `make test-fast` (unit only) runs in 0.66s.
@@ -66,7 +66,7 @@ someone will eventually spend an afternoon working out why their `commit()` did
 not persist. That cost is paid once, in `tests/conftest.py`, and the docstrings
 there carry the explanation.
 
-**Also bad.** Code that manages transactions itself cannot be tested this way —
+**Also bad.** Code that manages transactions itself cannot be tested this way
 anything calling `begin()` on its own connection, or relying on a real commit
 being visible to a *different* connection. Nothing does today. When something
 does (a worker holding an advisory lock, say), it will need the truncation
@@ -74,7 +74,7 @@ approach, and the two will have to coexist.
 
 **Worth knowing:** because the schema is created with `create_all` rather than
 by running migrations, a missing migration would not fail the suite. That is
-deliberate — it keeps schema bugs and migration bugs separable — and
+deliberate: it keeps schema bugs and migration bugs separable, and
 `alembic check` is the tool that answers the other question.
 
 ## Alternatives rejected
@@ -84,12 +84,12 @@ on the two costs above: it scales with the number of tables rather than the
 number of rows, and it does not run when a test dies.
 
 **Drop and recreate the schema per test.** Total isolation, trivially correct,
-and far too slow — seconds per test against a schema that will keep growing.
+and far too slow, seconds per test against a schema that will keep growing.
 
 **A separate database per test.** Isolation without any of the savepoint
 subtlety. Rejected as strictly more expensive than a transaction for the same
 guarantee. Worth revisiting only if the suite moves to `pytest-xdist`, where
-each *worker* will need its own database — a per-worker suffix on the database
+each *worker* will need its own database: a per-worker suffix on the database
 name, not a per-test one.
 
 **Mocking the database entirely.** Fast, and it tests nothing that matters

@@ -17,4 +17,4 @@ ADRs are immutable; a change of course is a *new* ADR that supersedes the old.
 ## Consequences
 - New contributors can read the decision history instead of reverse-
   engineering intent from code.
-- Slight writing overhead per big decision (~15 minutes) — worth it.
+- Slight writing overhead per big decision (~15 minutes), worth it.

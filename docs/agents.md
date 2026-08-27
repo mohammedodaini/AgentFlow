@@ -1,6 +1,6 @@
 # AI / Agent Architecture
 
-Built on **LangGraph** (graph-structured orchestration with checkpointing —
+Built on **LangGraph** (graph-structured orchestration with checkpointing
 which we need for human-in-the-loop pauses). Design only; no implementation
 until its milestone.
 
@@ -34,7 +34,7 @@ until its milestone.
 | Agent | Job | Typical tools |
 |---|---|---|
 | **Supervisor** | Classify intent, route to a specialist or ask Planner for a multi-step plan, own the conversation | route(), recall_memory() |
-| **Planner** | Decompose complex requests ("research this lead and draft an intro email") into ordered steps for other agents | none — pure reasoning |
+| **Planner** | Decompose complex requests ("research this lead and draft an intro email") into ordered steps for other agents | none: pure reasoning |
 | **RAG** | Answer questions over the org's knowledge base with citations | search_chunks(), fetch_document() |
 | **Research** | Gather external info on leads/companies | web_search(), fetch_url() |
 | **Email** | Draft, summarize, and (after approval) send email | search_email(), draft_email(), send_email()* |
@@ -49,19 +49,19 @@ until its milestone.
 
 1. **Shared graph state, not chat messages.** Within a run, agents are nodes
    in one LangGraph graph passing a typed state object (conversation context,
-   plan, intermediate results). No agent-to-agent free-text protocols — those
+   plan, intermediate results). No agent-to-agent free-text protocols: those
    are where multi-agent systems go to die.
 2. **Supervisor is the only entry point.** Specialists never call each other
    directly; the supervisor (guided by the Planner's plan) sequences them.
    This keeps the call graph a tree, which is debuggable.
 3. **Tools are the only way to touch the world.** Every tool wraps a service
-   method — so tenancy scoping, logging, and permission checks apply to
+   method, so tenancy scoping, logging, and permission checks apply to
    agents automatically, identically to human API users.
 4. **Checkpointing to Postgres.** Every state transition persists. This gives
    us (a) resume after crash, (b) human-approval pauses of arbitrary length,
    (c) full traces in `agent_runs` / `agent_steps`.
 5. **Memory is asynchronous.** The Memory agent runs after the response is
-   sent — memory extraction should never add latency to the user.
+   sent, memory extraction should never add latency to the user.
 
 ## Design principles
 
@@ -78,7 +78,7 @@ until its milestone.
   its own evidence, not this one's.
 
   What M15 built is the supervisor and the planner. **Research, Proposal,
-  Memory and Evaluation remain unbuilt on purpose** — the table above is a
+  Memory and Evaluation remain unbuilt on purpose**: the table above is a
   design, not a checklist. Evaluation lives in a runner (M8) and memory
   extraction in a worker task (M10), both deliberately, because neither has a
   branch to be a graph about; Research needs a web search tool this

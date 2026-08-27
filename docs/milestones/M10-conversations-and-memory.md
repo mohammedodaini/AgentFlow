@@ -1,10 +1,10 @@
-# M10 — Conversations and memory: a bounded window, and something that outlives it
+# M10: Conversations and memory: a bounded window, and something that outlives it
 
 - **Date:** 2026-08-15
 - **Status:** shipped
 - **ADRs:** [ADR-0013](../adr/0013-context-is-a-bounded-window-and-the-model-never-chooses-a-memorys-scope.md)
 
-M9's agent answers one question. M10 makes it hold a conversation — and then makes
+M9's agent answers one question. M10 makes it hold a conversation, and then makes
 it remember something after the conversation ends.
 
 ## What was built
@@ -36,7 +36,7 @@ prepare ──► retrieve ──► enough? ──yes──► generate ──�
 `prepare` is the milestone in one node. It does the two things that must happen
 *before* anything is searched: recall what is already known about the person, and
 make a follow-up question stand on its own. Retrieval sees one query, not a
-thread — so "how much is that?" is three words with no subject, and the best
+thread, so "how much is that?" is three words with no subject, and the best
 retrieval system in the world cannot help.
 
 ## The two ideas
@@ -46,7 +46,7 @@ retrieval system in the world cannot help.
 token budget, and they disagree about which end to keep. Retrieval keeps the
 top-ranked and drops the tail; a conversation keeps the *newest* and drops the
 head, because turn 4 is what makes turn 5 mean anything. What falls off the back
-is gone — and long-term memory is the mechanism that compensates, which is why
+is gone, and long-term memory is the mechanism that compensates, which is why
 these two shipped together rather than a milestone apart.
 
 **The model chooses the facts. It never chooses the scope.** Everything extracted
@@ -61,8 +61,8 @@ field for a model to fill in.
 Six, and one of them was in a test I had just written.
 
 **1. M9 stored its enum in the wrong case, and nothing had noticed.** `run_status`
-was the *only* enum in the schema holding uppercase member names — `RUNNING`,
-`SUCCEEDED` — while `membership_role`, `document_status`, `document_source` and
+was the *only* enum in the schema holding uppercase member names, `RUNNING`
+`SUCCEEDED`: while `membership_role`, `document_status`, `document_source` and
 `task_status` all store the lowercase value, each with a comment explaining why.
 M9 omitted `values_callable`. Nothing broke, because SQLAlchemy writes and reads
 by the same rule either way. The cost is invisible until somebody types SQL by
@@ -76,7 +76,7 @@ RENAME VALUE`, which relabels in place without moving a row.
 tables and never alters an existing one. So `agent_runs.conversation_id` was never
 added to `agentflow_test`, and the failure arrived as an `UndefinedColumnError`
 from inside an unrelated M9 test. Fixed by dropping and recreating the schema per
-session — with `DROP SCHEMA public CASCADE` rather than `metadata.drop_all()`,
+session, with `DROP SCHEMA public CASCADE` rather than `metadata.drop_all()`
 because `drop_all` drops tables and **not** the enum types they use, which is the
 same fact that has needed a hand-written line in four migrations now. Guarded so
 it refuses any database whose name does not end in `_test`.
@@ -85,7 +85,7 @@ it refuses any database whose name does not end in `_test`.
 (M2, M5, M9, M10). Autogenerate has still never written that line.
 
 **4. Autogenerate produced doubled constraint names.**
-`ck_memories_ck_memories_importance` — because `NAMING_CONVENTION` prepends
+`ck_memories_ck_memories_importance`: because `NAMING_CONVENTION` prepends
 `ck_%(table_name)s_` and the model had spelled the prefix out as well.
 
 **5. A check constraint that would have rejected every row it guarded.** The
@@ -97,7 +97,7 @@ nothing checks that they do.* Caught because fixing bug 1 made me re-read it.
 
 **6. A test that passed for the wrong reason, then failed for a worse one.** The
 control for "a follow-up is answered in context" was "the same question alone is
-*not* answered". It failed — because this corpus is small enough to be a single
+*not* answered". It failed, because this corpus is small enough to be a single
 chunk, so retrieval returns it for any query at all and the offline model quotes
 its most similar sentence. The answer contained "45p" either way. Had the corpus
 been one document larger the control would have *passed*, and the test above it
@@ -120,7 +120,7 @@ Real uvicorn, real arq worker, curl.
   Answer: *"Mileage is reimbursed at 45p per mile for the first 10,000 miles. [1]"*
 - **Memory extracted asynchronously**, after the response was sent: one user-scoped
   memory, `importance 0.5`, from a sentence the person actually typed.
-- **Recalled in a *different* conversation** — `prepare` on a fresh thread returned
+- **Recalled in a *different* conversation**, `prepare` on a fresh thread returned
   `["I work in the Berlin office and I approve invoices for my team"]`. That
   crossing of a thread boundary is the whole point of memory being a table rather
   than a longer window.
@@ -137,7 +137,7 @@ ruff · ruff format · mypy --strict (221 files) · alembic check · make eval
 596 tests, 2 skipped · 98.20% coverage (gate 97%)
 ```
 
-**`make eval` still passes**, with scores identical to M8's committed baseline —
+**`make eval` still passes**, with scores identical to M8's committed baseline
 recall 1.000, mrr 0.864, refusal_accuracy 0.000. That is exactly what the gate is
 for: M10 changed the graph, added a node, and introduced a second prompt pair, and
 the baseline is what confirms `/ask` did not move with it.
@@ -145,11 +145,11 @@ the baseline is what confirms `/ask` did not move with it.
 ## Known gaps, deliberately left
 
 **Extraction quality is untested, and it is the biggest gap here.** The offline
-provider returns first-person declarative sentences the user actually typed —
+provider returns first-person declarative sentences the user actually typed
 never inventing, and never *judging*. Rule 1 of the extraction prompt (*is this
 durable?*) is a judgement about meaning, and "I am in a meeting until three"
 passes every test the offline path can apply. So the pipeline is verified and the
-judgement is not. Labelled, not hidden — the same treatment M8 gave
+judgement is not. Labelled, not hidden: the same treatment M8 gave
 `refusal_accuracy: 0.000`.
 
 **Nothing writes an org-scoped memory.** The scope exists, recall honours it, tests
@@ -191,5 +191,5 @@ curl -X POST localhost:8099/api/v1/conversations/$CONV/messages \
   -H 'Content-Type: application/json' -d '{"content": "How much is that?"}'
 ```
 
-Then `GET /api/v1/memories` — the worker will have learned something from the
+Then `GET /api/v1/memories`: the worker will have learned something from the
 first turn by the time the second finishes.

@@ -1,4 +1,4 @@
-# M5 — Document upload and background ingestion
+# M5: Document upload and background ingestion
 
 **Status:** complete (2026-08-12) · **Gate:** `make check` green · **Tests:** 236 passing (was 156) · **Coverage:** 98.9%
 
@@ -52,13 +52,13 @@ in the recoverable direction.
 
 **Nothing may be enqueued before the data it refers to is committed.** A worker
 is milliseconds away and lives in another process, so a job pushed inside the
-transaction can be dequeued before the row is visible — leaving a document
+transaction can be dequeued before the row is visible, leaving a document
 `pending` forever with no error anywhere.
 
 The first implementation used `BackgroundTasks`, on the documented belief that
 dependency teardown runs before background tasks. On FastAPI 0.141 it is the
-other way round. The e2e test recorded `['enqueue', 'commit']` on its first run
-— the race, reproduced immediately, before any of this reached a queue with
+other way round. The e2e test recorded `['enqueue', 'commit']` on its first run,
+the race, reproduced immediately, before any of this reached a queue with
 real load on it.
 
 The route now commits explicitly and then enqueues. Full reasoning, the
@@ -75,16 +75,16 @@ Five, none of them by reading the code.
 **`utf-8` was tried before `utf-8-sig`.** A file with a byte order mark decodes
 *successfully* as UTF-8, keeping the mark as a U+FEFF character, so the sig
 codec was never reached. Every such document would have begun with an invisible
-stray character — and so would its first citation at M6.
+stray character, and so would its first citation at M6.
 
 **cp1252 decodes almost anything.** Latin-1 was excluded from the fallback list
 for exactly that reason, and the replacement has the same flaw: only five of
 cp1252's 256 bytes are undefined. A `.zip` renamed `.txt` would have become a
-`ready`, searchable document made entirely of noise — worse than a failure,
+`ready`, searchable document made entirely of noise, worse than a failure
 because nothing about it looks wrong. Fixed with a printable-character check.
 
 **`mkdir` sat outside the `try`** in the atomic write, so a directory-creation
-failure escaped as a raw `OSError` instead of a `StorageError` — the one
+failure escaped as a raw `OSError` instead of a `StorageError`: the one
 translation that module exists to guarantee. Then the fix exposed a second
 layer: the `except` block's own `unlink` raised on the same bad path, replacing
 the real error with a confusing one.
@@ -92,14 +92,14 @@ the real error with a confusing one.
 **The Postgres enums outlived their tables again.** Autogenerate wrote a
 `downgrade()` that drops `documents` and `tasks` and leaves `document_status`,
 `document_source` and `task_status` behind, so the next `upgrade` fails on a
-type that already exists. Same defect as M2, caught the same way — by actually
+type that already exists. Same defect as M2, caught the same way, by actually
 running `alembic downgrade -1 && alembic upgrade head` rather than reading it.
 
 **UUIDv7 ordering within one millisecond is arbitrary.** A docstring claimed id
 order *is* chronological order. Our `uuid7()` is the pure-random variant of
 RFC 9562 §5.7 with no monotonic counter, so ids minted in the same millisecond
-sort by their random bits. The property pagination actually needs — a *total,
-stable* order — still holds, and is the one now documented.
+sort by their random bits. The property pagination actually needs: a *total
+stable* order, still holds, and is the one now documented.
 
 ## Verified at runtime
 
@@ -112,7 +112,7 @@ poll 1s later                   → status "ready"
 tasks row                       → succeeded, attempts=1, result={"characters": 61}
 on disk                         → organizations/<org>/documents/<doc>/handbook.pdf
 truncated PDF                   → status "failed",
-                                  "Could not read the PDF — the file may be
+                                  "Could not read the PDF: the file may be
                                    corrupt or truncated (Stream has ended
                                    unexpectedly)."
 .exe upload                     → HTTP 415, listing the types that do work
@@ -142,13 +142,13 @@ e2e           67/236
 
 ## Known gaps, deliberately left
 
-- **No sweeper for stuck tasks.** A `tasks` row that stays `queued` — because
-  the process died between commit and enqueue, or Redis was down — is invisible
+- **No sweeper for stuck tasks.** A `tasks` row that stays `queued`, because
+  the process died between commit and enqueue, or Redis was down, is invisible
   today. The row exists precisely so this is fixable; the publisher does not.
   ADR-0008, M16.
 - **`Content-Type` is trusted.** A renamed executable announced as
-  `application/pdf` is stored. Bounded rather than dangerous — nothing executes
-  it, extraction fails, the document ends `failed` — but magic-byte sniffing
+  `application/pdf` is stored. Bounded rather than dangerous, nothing executes
+  it, extraction fails, the document ends `failed`, but magic-byte sniffing
   belongs in the M16 hardening pass.
 - **No virus scanning.** Same milestone, and a real requirement before any
   customer uploads anything.
@@ -167,5 +167,5 @@ e2e           67/236
 make up && make migrate
 make check
 make dev            # terminal 1
-make worker         # terminal 2 — without this, uploads stay "pending" forever
+make worker         # terminal 2, without this, uploads stay "pending" forever
 ```

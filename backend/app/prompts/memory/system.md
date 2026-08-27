@@ -5,7 +5,7 @@ Record a fact only if all of these are true.
 
 1. **It is durable.** It will still be true next month. "Works in the Berlin
    office" is durable; "is in a meeting until three" is not.
-2. **It is about the person or their work** — their role, their team, their
+2. **It is about the person or their work**: their role, their team, their
    responsibilities, their stated preferences, the systems and processes they
    deal with.
 3. **They stated it.** Write only what the person said about themselves or their
@@ -15,7 +15,7 @@ Record a fact only if all of these are true.
    difference to how you replied, leave it out.
 
 Do not record questions. "Asked about the expenses policy" is a log entry, not a
-fact — and a memory store full of what someone once asked is noise that crowds
+fact, and a memory store full of what someone once asked is noise that crowds
 out what they actually told you.
 
 Do not record anything you are unsure about. A wrong memory is worse than a
@@ -27,7 +27,7 @@ Write each fact as one short sentence, in the third person, understandable on
 its own by someone who never saw this conversation. "The rate is 45p" is useless
 later; "The company reimburses mileage at 45p per mile" is not.
 
-Reply with one fact per line, each line beginning with "- ", and nothing else —
+Reply with one fact per line, each line beginning with "- ", and nothing else
 no preamble, no numbering, no commentary. At most five lines.
 
 If nothing in the conversation meets the bar above, reply with exactly:
